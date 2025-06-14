@@ -279,7 +279,7 @@ export class Database {
                 user_id TEXT,
                 guild_id TEXT,
                 data TEXT DEFAULT '{}',
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                timestamp TEXT DEFAULT (datetime('now')),
                 session_id TEXT,
                 ip_address TEXT,
                 user_agent TEXT
@@ -295,26 +295,141 @@ export class Database {
 
     async updateTables() {
         try {
-            // Check if analytics_events table has the data column
-            const columns = await this.db.all("PRAGMA table_info(analytics_events)");
-            const hasDataColumn = columns.some(col => col.name === 'data');
+            // Check if analytics_events table exists and get its schema
+            const tableExists = await this.db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='analytics_events'");
             
-            if (!hasDataColumn) {
-                this.logger.info('Adding missing data column to analytics_events table');
-                await this.db.exec('ALTER TABLE analytics_events ADD COLUMN data TEXT DEFAULT "{}"');
-            }
-            
-            // Check for other missing columns that might exist in old schemas
-            const hasTimestampColumn = columns.some(col => col.name === 'timestamp');
-            if (!hasTimestampColumn) {
-                this.logger.info('Adding missing timestamp column to analytics_events table');
-                await this.db.exec('ALTER TABLE analytics_events ADD COLUMN timestamp DATETIME DEFAULT CURRENT_TIMESTAMP');
+            if (tableExists) {
+                // Get current column information
+                const columns = await this.db.all("PRAGMA table_info(analytics_events)");
+                const hasDataColumn = columns.some(col => col.name === 'data');
+                const timestampColumn = columns.find(col => col.name === 'timestamp');
+                
+                // Check if we need to migrate the analytics_events table
+                let needsMigration = false;
+                
+                if (!hasDataColumn) {
+                    this.logger.info('Missing data column detected in analytics_events table');
+                    needsMigration = true;
+                }
+                
+                if (!timestampColumn) {
+                    this.logger.info('Missing timestamp column detected in analytics_events table');
+                    needsMigration = true;
+                } else if (timestampColumn.type !== 'TEXT' && timestampColumn.type !== 'DATETIME') {
+                    this.logger.info(`Incorrect timestamp column type detected: ${timestampColumn.type}, expected TEXT or DATETIME`);
+                    needsMigration = true;
+                }
+                
+                if (needsMigration) {
+                    this.logger.info('Migrating analytics_events table to fix datatype issues...');
+                    await this.migrateAnalyticsEventsTable();
+                }
             }
             
             this.logger.debug('Database table updates completed');
         } catch (error) {
             this.logger.error('Error updating database tables:', error);
             // Don't throw here as this is not critical for basic functionality
+        }
+    }
+
+    async migrateAnalyticsEventsTable() {
+        try {
+            // Create a backup table name with timestamp
+            const backupTableName = `analytics_events_backup_${Date.now()}`;
+            
+            // Rename the existing table to backup
+            await this.db.exec(`ALTER TABLE analytics_events RENAME TO ${backupTableName}`);
+            
+            // Create the new table with correct schema
+            await this.db.exec(`
+                CREATE TABLE analytics_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_type TEXT NOT NULL,
+                    event_name TEXT NOT NULL,
+                    user_id TEXT,
+                    guild_id TEXT,
+                    data TEXT DEFAULT '{}',
+                    timestamp TEXT DEFAULT (datetime('now')),
+                    session_id TEXT,
+                    ip_address TEXT,
+                    user_agent TEXT
+                )
+            `);
+            
+            // Get the columns from the backup table
+            const backupColumns = await this.db.all(`PRAGMA table_info(${backupTableName})`);
+            const backupColumnNames = backupColumns.map(col => col.name);
+            
+            // Prepare the column mapping for data migration
+            const commonColumns = ['id', 'event_type', 'event_name', 'user_id', 'guild_id', 'session_id', 'ip_address', 'user_agent'];
+            const selectColumns = [];
+            const insertColumns = [];
+            
+            for (const col of commonColumns) {
+                if (backupColumnNames.includes(col)) {
+                    selectColumns.push(col);
+                    insertColumns.push(col);
+                }
+            }
+            
+            // Handle data column
+            if (backupColumnNames.includes('data')) {
+                selectColumns.push('data');
+                insertColumns.push('data');
+            } else {
+                selectColumns.push("'{}' as data");
+                insertColumns.push('data');
+            }
+            
+            // Handle timestamp column with conversion
+            if (backupColumnNames.includes('timestamp')) {
+                // Try to convert timestamp - if it's a number (Unix timestamp), convert it
+                selectColumns.push(`
+                    CASE 
+                        WHEN typeof(timestamp) = 'integer' OR typeof(timestamp) = 'real' THEN 
+                            datetime(timestamp / 1000, 'unixepoch')
+                        WHEN timestamp IS NULL OR timestamp = '' THEN 
+                            datetime('now')
+                        ELSE 
+                            timestamp
+                    END as timestamp
+                `);
+            } else {
+                selectColumns.push("datetime('now') as timestamp");
+            }
+            insertColumns.push('timestamp');
+            
+            // Copy data from backup table to new table
+            const selectQuery = selectColumns.join(', ');
+            const insertQuery = insertColumns.join(', ');
+            
+            await this.db.exec(`
+                INSERT INTO analytics_events (${insertQuery})
+                SELECT ${selectQuery}
+                FROM ${backupTableName}
+            `);
+            
+            // Drop the backup table
+            await this.db.exec(`DROP TABLE ${backupTableName}`);
+            
+            this.logger.success('Analytics events table migration completed successfully');
+            
+        } catch (error) {
+            this.logger.error('Failed to migrate analytics_events table:', error);
+            // Try to restore from backup if it exists
+            try {
+                const backupTableName = `analytics_events_backup_${Date.now()}`;
+                const backupExists = await this.db.get(`SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'analytics_events_backup_%'`);
+                if (backupExists) {
+                    await this.db.exec('DROP TABLE IF EXISTS analytics_events');
+                    await this.db.exec(`ALTER TABLE ${backupExists.name} RENAME TO analytics_events`);
+                    this.logger.info('Restored analytics_events table from backup');
+                }
+            } catch (restoreError) {
+                this.logger.error('Failed to restore from backup:', restoreError);
+            }
+            throw error;
         }
     }
 
@@ -461,10 +576,18 @@ export class Database {
 
     // Analytics operations
     async addAnalyticsEvent(eventType, eventName, userId = null, guildId = null, data = {}, sessionId = null, ipAddress = null, userAgent = null) {
-        await this.db.run(
-            'INSERT INTO analytics_events (event_type, event_name, user_id, guild_id, data, session_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [eventType, eventName, userId, guildId, JSON.stringify(data), sessionId, ipAddress, userAgent]
-        );
+        try {
+            // Ensure timestamp is in the correct format
+            const timestamp = new Date().toISOString();
+            
+            await this.db.run(
+                'INSERT INTO analytics_events (event_type, event_name, user_id, guild_id, data, timestamp, session_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [eventType, eventName, userId, guildId, JSON.stringify(data), timestamp, sessionId, ipAddress, userAgent]
+            );
+        } catch (error) {
+            this.logger.error('Failed to store analytics event:', error);
+            throw error;
+        }
     }
 
     async getAnalyticsEvents(eventType = null, limit = 100, offset = 0) {
