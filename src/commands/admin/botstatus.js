@@ -2,7 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, But
 
 export default {
     data: new SlashCommandBuilder()
-        .setName('status')
+        .setName('botstatus')
         .setDescription('View comprehensive bot status and system information')
         .addBooleanOption(option =>
             option.setName('detailed')
