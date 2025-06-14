@@ -110,81 +110,14 @@ export default {
                     value: 'utility', 
                     description: 'Essential tools and helpful utilities',
                     emoji: '🔧'
-                },
-                { 
-                    label: '👥 Social Commands', 
-                    value: 'social', 
-                    description: 'Community building and social features',
-                    emoji: '👥'
-                },
-                { 
-                    label: '🎮 Game Commands', 
-                    value: 'games', 
-                    description: 'Interactive games and fun activities',
-                    emoji: '🎮'
-                },
-                { 
-                    label: '😂 Meme Commands', 
-                    value: 'memes', 
-                    description: 'Meme generation and entertainment',
-                    emoji: '😂'
-                },
-                { 
-                    label: '💖 Anime Commands', 
-                    value: 'anime', 
-                    description: 'Anime-related features and content',
-                    emoji: '💖'
-                },
-                { 
-                    label: '📈 Leveling Commands', 
-                    value: 'leveling', 
-                    description: 'XP system with rewards and rankings',
-                    emoji: '📈'
-                },
-                { 
-                    label: '🤖 AI Commands', 
-                    value: 'ai', 
-                    description: 'AI-powered features and smart assistance',
-                    emoji: '🤖'
-                },
-                { 
-                    label: '🎫 Ticket Commands', 
-                    value: 'tickets', 
-                    description: 'Professional support ticket system',
-                    emoji: '🎫'
                 }
             ]);
 
         const selectRow = new ActionRowBuilder().addComponents(categorySelect);
 
-        // Quick action buttons
-        const quickActions = new ActionRowBuilder()
-            .addComponents(
-                new ButtonBuilder()
-                    .setCustomId('help_quick_music')
-                    .setLabel('Music Player')
-                    .setStyle(ButtonStyle.Success)
-                    .setEmoji('🎵'),
-                new ButtonBuilder()
-                    .setCustomId('help_quick_economy')
-                    .setLabel('Economy Panel')
-                    .setStyle(ButtonStyle.Primary)
-                    .setEmoji('💰'),
-                new ButtonBuilder()
-                    .setCustomId('help_quick_games')
-                    .setLabel('Game Center')
-                    .setStyle(ButtonStyle.Secondary)
-                    .setEmoji('🎮'),
-                new ButtonBuilder()
-                    .setCustomId('help_quick_ai')
-                    .setLabel('AI Assistant')
-                    .setStyle(ButtonStyle.Primary)
-                    .setEmoji('🤖')
-            );
-
         await interaction.reply({ 
             embeds: [embed], 
-            components: [selectRow, quickActions]
+            components: [selectRow]
         });
     },
 };

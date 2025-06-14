@@ -16,9 +16,25 @@ export class Database {
         this.dbFile = join(this.dbPath, 'bot.db');
         this.backupPath = join(this.dbPath, 'backups');
         this.isInitialized = false;
+        this.isInitializing = false;
     }
 
     async initialize() {
+        // Prevent multiple initialization attempts
+        if (this.isInitialized) {
+            return;
+        }
+        
+        if (this.isInitializing) {
+            // Wait for existing initialization to complete
+            while (this.isInitializing) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            return;
+        }
+
+        this.isInitializing = true;
+
         try {
             this.logger.loading('Initializing database...');
             
@@ -30,15 +46,41 @@ export class Database {
                 mkdirSync(this.backupPath, { recursive: true });
             }
 
-            // Open database connection
-            this.db = await open({
-                filename: this.dbFile,
-                driver: sqlite3.Database
-            });
+            // Close any existing connection first
+            if (this.db) {
+                try {
+                    await this.db.close();
+                } catch (error) {
+                    // Ignore close errors
+                }
+                this.db = null;
+            }
 
-            // Enable foreign keys and WAL mode
+            // Open database connection with retry logic
+            let retries = 3;
+            while (retries > 0) {
+                try {
+                    this.db = await open({
+                        filename: this.dbFile,
+                        driver: sqlite3.Database,
+                        mode: sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE
+                    });
+                    break;
+                } catch (error) {
+                    if (error.code === 'SQLITE_BUSY' && retries > 1) {
+                        this.logger.warn(`Database busy, retrying... (${retries - 1} attempts left)`);
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        retries--;
+                    } else {
+                        throw error;
+                    }
+                }
+            }
+
+            // Configure database settings with timeout
+            await this.db.exec('PRAGMA busy_timeout = 30000'); // 30 second timeout
+            await this.db.exec('PRAGMA journal_mode = DELETE'); // Use DELETE instead of WAL mode
             await this.db.exec('PRAGMA foreign_keys = ON');
-            await this.db.exec('PRAGMA journal_mode = WAL');
             await this.db.exec('PRAGMA synchronous = NORMAL');
             await this.db.exec('PRAGMA cache_size = 1000');
             await this.db.exec('PRAGMA temp_store = MEMORY');
@@ -61,6 +103,8 @@ export class Database {
         } catch (error) {
             this.logger.error('Failed to initialize database:', error);
             throw error;
+        } finally {
+            this.isInitializing = false;
         }
     }
 
@@ -128,8 +172,7 @@ export class Database {
                 expires_at DATETIME,
                 evidence TEXT,
                 case_id TEXT UNIQUE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE CASCADE
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
 
             `CREATE TABLE IF NOT EXISTS warnings (
@@ -139,20 +182,7 @@ export class Database {
                 moderator_id TEXT NOT NULL,
                 reason TEXT NOT NULL,
                 active BOOLEAN DEFAULT 1,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE CASCADE
-            )`,
-
-            `CREATE TABLE IF NOT EXISTS automod_rules (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                guild_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                type TEXT NOT NULL,
-                enabled BOOLEAN DEFAULT 1,
-                config TEXT DEFAULT '{}',
-                actions TEXT DEFAULT '[]',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE CASCADE
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
 
             // Economy tables
@@ -164,34 +194,7 @@ export class Database {
                 balance_after INTEGER NOT NULL,
                 description TEXT,
                 metadata TEXT DEFAULT '{}',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )`,
-
-            `CREATE TABLE IF NOT EXISTS shop_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                guild_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                description TEXT,
-                price INTEGER NOT NULL,
-                type TEXT NOT NULL,
-                data TEXT DEFAULT '{}',
-                stock INTEGER DEFAULT -1,
-                enabled BOOLEAN DEFAULT 1,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE CASCADE
-            )`,
-
-            `CREATE TABLE IF NOT EXISTS user_inventory (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                guild_id TEXT NOT NULL,
-                item_id INTEGER NOT NULL,
-                quantity INTEGER DEFAULT 1,
-                acquired_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE CASCADE,
-                FOREIGN KEY (item_id) REFERENCES shop_items(id) ON DELETE CASCADE
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
 
             // Music tables
@@ -205,20 +208,7 @@ export class Database {
                 public BOOLEAN DEFAULT 0,
                 plays INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )`,
-
-            `CREATE TABLE IF NOT EXISTS music_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                guild_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                song_title TEXT NOT NULL,
-                song_url TEXT NOT NULL,
-                duration INTEGER,
-                played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE CASCADE,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
 
             // Ticket tables
@@ -236,9 +226,7 @@ export class Database {
                 rating INTEGER,
                 feedback TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                closed_at DATETIME,
-                FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE CASCADE,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                closed_at DATETIME
             )`,
 
             // Game tables
@@ -254,21 +242,7 @@ export class Database {
                 best_score INTEGER DEFAULT 0,
                 total_played INTEGER DEFAULT 0,
                 achievements TEXT DEFAULT '[]',
-                last_played DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )`,
-
-            `CREATE TABLE IF NOT EXISTS leaderboards (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                guild_id TEXT NOT NULL,
-                type TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                score INTEGER NOT NULL,
-                rank INTEGER,
-                period TEXT DEFAULT 'all_time',
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE CASCADE,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                last_played DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
 
             // Social tables
@@ -279,33 +253,10 @@ export class Database {
                 type TEXT NOT NULL,
                 status TEXT DEFAULT 'pending',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                accepted_at DATETIME,
-                FOREIGN KEY (user1_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (user2_id) REFERENCES users(id) ON DELETE CASCADE
-            )`,
-
-            `CREATE TABLE IF NOT EXISTS reputation (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                from_user_id TEXT NOT NULL,
-                to_user_id TEXT NOT NULL,
-                guild_id TEXT NOT NULL,
-                amount INTEGER DEFAULT 1,
-                reason TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (from_user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (guild_id) REFERENCES guilds(id) ON DELETE CASCADE
+                accepted_at DATETIME
             )`,
 
             // Analytics tables
-            `CREATE TABLE IF NOT EXISTS analytics_events (
-                id TEXT PRIMARY KEY,
-                event TEXT NOT NULL,
-                data TEXT DEFAULT '{}',
-                timestamp INTEGER NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )`,
-
             `CREATE TABLE IF NOT EXISTS command_usage (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 command TEXT NOT NULL,
@@ -314,43 +265,6 @@ export class Database {
                 success BOOLEAN DEFAULT 1,
                 execution_time INTEGER,
                 error_message TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )`,
-
-            // AI tables
-            `CREATE TABLE IF NOT EXISTS ai_conversations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                guild_id TEXT,
-                conversation_id TEXT NOT NULL,
-                messages TEXT DEFAULT '[]',
-                model TEXT,
-                tokens_used INTEGER DEFAULT 0,
-                cost REAL DEFAULT 0.0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )`,
-
-            // System tables
-            `CREATE TABLE IF NOT EXISTS system_stats (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                metric TEXT NOT NULL,
-                value TEXT NOT NULL,
-                timestamp INTEGER NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )`,
-
-            `CREATE TABLE IF NOT EXISTS scheduled_tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                type TEXT NOT NULL,
-                data TEXT DEFAULT '{}',
-                schedule TEXT NOT NULL,
-                enabled BOOLEAN DEFAULT 1,
-                last_run DATETIME,
-                next_run DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`
         ];
@@ -377,51 +291,24 @@ export class Database {
             // Moderation indexes
             'CREATE INDEX IF NOT EXISTS idx_mod_logs_guild ON mod_logs(guild_id)',
             'CREATE INDEX IF NOT EXISTS idx_mod_logs_user ON mod_logs(user_id)',
-            'CREATE INDEX IF NOT EXISTS idx_mod_logs_action ON mod_logs(action)',
-            'CREATE INDEX IF NOT EXISTS idx_mod_logs_created ON mod_logs(created_at DESC)',
             'CREATE INDEX IF NOT EXISTS idx_warnings_guild_user ON warnings(guild_id, user_id)',
-            'CREATE INDEX IF NOT EXISTS idx_warnings_active ON warnings(active)',
 
             // Economy indexes
             'CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id)',
             'CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type)',
-            'CREATE INDEX IF NOT EXISTS idx_transactions_created ON transactions(created_at DESC)',
-            'CREATE INDEX IF NOT EXISTS idx_shop_items_guild ON shop_items(guild_id)',
-            'CREATE INDEX IF NOT EXISTS idx_shop_items_enabled ON shop_items(enabled)',
 
             // Music indexes
             'CREATE INDEX IF NOT EXISTS idx_playlists_user ON playlists(user_id)',
             'CREATE INDEX IF NOT EXISTS idx_playlists_public ON playlists(public)',
-            'CREATE INDEX IF NOT EXISTS idx_music_history_guild ON music_history(guild_id)',
-            'CREATE INDEX IF NOT EXISTS idx_music_history_user ON music_history(user_id)',
 
             // Ticket indexes
             'CREATE INDEX IF NOT EXISTS idx_tickets_guild ON tickets(guild_id)',
             'CREATE INDEX IF NOT EXISTS idx_tickets_user ON tickets(user_id)',
             'CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status)',
-            'CREATE INDEX IF NOT EXISTS idx_tickets_created ON tickets(created_at DESC)',
 
             // Game indexes
             'CREATE INDEX IF NOT EXISTS idx_game_stats_user ON game_stats(user_id)',
-            'CREATE INDEX IF NOT EXISTS idx_game_stats_game ON game_stats(game)',
-            'CREATE INDEX IF NOT EXISTS idx_leaderboards_guild_type ON leaderboards(guild_id, type)',
-            'CREATE INDEX IF NOT EXISTS idx_leaderboards_score ON leaderboards(score DESC)',
-
-            // Analytics indexes
-            'CREATE INDEX IF NOT EXISTS idx_analytics_event ON analytics_events(event)',
-            'CREATE INDEX IF NOT EXISTS idx_analytics_timestamp ON analytics_events(timestamp DESC)',
-            'CREATE INDEX IF NOT EXISTS idx_command_usage_command ON command_usage(command)',
-            'CREATE INDEX IF NOT EXISTS idx_command_usage_created ON command_usage(created_at DESC)',
-
-            // AI indexes
-            'CREATE INDEX IF NOT EXISTS idx_ai_conversations_user ON ai_conversations(user_id)',
-            'CREATE INDEX IF NOT EXISTS idx_ai_conversations_id ON ai_conversations(conversation_id)',
-
-            // System indexes
-            'CREATE INDEX IF NOT EXISTS idx_system_stats_metric ON system_stats(metric)',
-            'CREATE INDEX IF NOT EXISTS idx_system_stats_timestamp ON system_stats(timestamp DESC)',
-            'CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled)',
-            'CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run)'
+            'CREATE INDEX IF NOT EXISTS idx_game_stats_game ON game_stats(game)'
         ];
 
         for (const index of indexes) {
@@ -450,14 +337,6 @@ export class Database {
              AFTER UPDATE ON playlists 
              BEGIN 
                  UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-             END`,
-
-            // Auto-generate case IDs for mod logs
-            `CREATE TRIGGER IF NOT EXISTS generate_case_id 
-             AFTER INSERT ON mod_logs 
-             WHEN NEW.case_id IS NULL
-             BEGIN 
-                 UPDATE mod_logs SET case_id = 'CASE-' || NEW.id WHERE id = NEW.id;
              END`
         ];
 
@@ -486,24 +365,6 @@ export class Database {
         await this.db.run(`UPDATE users SET ${setClause} WHERE id = ?`, [...values, userId]);
     }
 
-    async getUserStats(userId) {
-        const user = await this.getUser(userId);
-        const commandCount = await this.db.get(
-            'SELECT COUNT(*) as count FROM command_usage WHERE user_id = ?', 
-            userId
-        );
-        const gameStats = await this.db.all(
-            'SELECT * FROM game_stats WHERE user_id = ?', 
-            userId
-        );
-        
-        return {
-            ...user,
-            commandsUsed: commandCount.count,
-            gameStats
-        };
-    }
-
     // Guild operations
     async getGuild(guildId) {
         let guild = await this.db.get('SELECT * FROM guilds WHERE id = ?', guildId);
@@ -512,14 +373,6 @@ export class Database {
             guild = await this.db.get('SELECT * FROM guilds WHERE id = ?', guildId);
         }
         return guild;
-    }
-
-    async updateGuild(guildId, data) {
-        const keys = Object.keys(data);
-        const values = Object.values(data);
-        const setClause = keys.map(key => `${key} = ?`).join(', ');
-        
-        await this.db.run(`UPDATE guilds SET ${setClause} WHERE id = ?`, [...values, guildId]);
     }
 
     // Moderation operations
@@ -544,20 +397,6 @@ export class Database {
         );
     }
 
-    async addWarning(guildId, userId, moderatorId, reason) {
-        await this.db.run(
-            'INSERT INTO warnings (guild_id, user_id, moderator_id, reason) VALUES (?, ?, ?, ?)',
-            [guildId, userId, moderatorId, reason]
-        );
-    }
-
-    async getWarnings(guildId, userId) {
-        return await this.db.all(
-            'SELECT * FROM warnings WHERE guild_id = ? AND user_id = ? AND active = 1 ORDER BY created_at DESC',
-            [guildId, userId]
-        );
-    }
-
     // Economy operations
     async addTransaction(userId, type, amount, description, metadata = {}) {
         const user = await this.getUser(userId);
@@ -569,13 +408,6 @@ export class Database {
         );
         
         await this.updateUser(userId, { coins: balanceAfter });
-    }
-
-    async getTransactions(userId, limit = 50) {
-        return await this.db.all(
-            'SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
-            [userId, limit]
-        );
     }
 
     // Leaderboard operations
@@ -592,9 +424,6 @@ export class Database {
                 break;
             case 'xp':
                 query = 'SELECT id, username, xp, level FROM users ORDER BY xp DESC LIMIT ?';
-                break;
-            case 'rep':
-                query = 'SELECT id, username, rep FROM users ORDER BY rep DESC LIMIT ?';
                 break;
             default:
                 query = 'SELECT id, username, coins, bank FROM users ORDER BY (coins + bank) DESC LIMIT ?';
@@ -649,17 +478,6 @@ export class Database {
                 this.logger.error('Database analyze failed:', error);
             }
         }, 6 * 60 * 60 * 1000);
-
-        // Clean old analytics events every hour
-        setInterval(async () => {
-            try {
-                const cutoff = Date.now() - (30 * 24 * 60 * 60 * 1000); // 30 days
-                await this.db.run('DELETE FROM analytics_events WHERE timestamp < ?', cutoff);
-                this.logger.debug('Old analytics events cleaned up');
-            } catch (error) {
-                this.logger.error('Analytics cleanup failed:', error);
-            }
-        }, 60 * 60 * 1000);
     }
 
     async backup() {
@@ -694,8 +512,14 @@ export class Database {
 
     async close() {
         if (this.db) {
-            await this.db.close();
-            this.logger.info('Database connection closed');
+            try {
+                await this.db.close();
+                this.db = null;
+                this.isInitialized = false;
+                this.logger.info('Database connection closed');
+            } catch (error) {
+                this.logger.error('Error closing database:', error);
+            }
         }
     }
 }
