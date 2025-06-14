@@ -245,6 +245,7 @@ export class BotCore {
 
     async initialize() {
         try {
+            this.logger = new Logger(); // Initialize logger first
             this.logger.info('🤖 Initializing World\'s Best Discord Bot v2.0...');
             this.displayBanner();
             
@@ -262,18 +263,16 @@ export class BotCore {
             // Start web server
             try {
                 await this.webServer.start();
-            } catch (error) {
-                this.logger.error('Failed to start web server:', error);
+            } catch (webError) {
+                this.logger.warn('Web server failed to start:', webError.message || webError);
                 // Continue without web server
             }
             
             // Start monitoring
             try {
-                if (this.monitoring && typeof this.monitoring.start === 'function') {
-                    await this.monitoring.start();
-                }
-            } catch (error) {
-                this.logger.error('Failed to start monitoring:', error);
+                await this.monitoring.start();
+            } catch (monitorError) {
+                this.logger.warn('Monitoring failed to start:', monitorError.message || monitorError);
                 // Continue without monitoring
             }
             
@@ -291,7 +290,11 @@ export class BotCore {
             this.logger.success('🚀 Bot initialization completed successfully!');
             
         } catch (error) {
-            this.logger.error('Bot initialization failed:', error);
+            if (this.logger) {
+                this.logger.error('Bot initialization failed:', error);
+            } else {
+                console.error('Bot initialization failed:', error);
+            }
             throw error;
         }
     }
@@ -363,7 +366,6 @@ export class BotCore {
         const commandsPath = join(__dirname, '../commands');
         const commandFolders = readdirSync(commandsPath);
         let commandCount = 0;
-        const loadedCommands = new Set(); // Track loaded command names
 
         for (const folder of commandFolders) {
             const folderPath = join(commandsPath, folder);
@@ -377,48 +379,41 @@ export class BotCore {
                     const { default: command } = await import(filePath);
                     
                     if ('data' in command && 'execute' in command) {
-                        // Check for duplicate command names
-                        if (loadedCommands.has(command.data.name)) {
-                            this.logger.warn(`Duplicate command name found: ${command.data.name} in ${file}. Skipping...`);
-                            continue;
-                        }
-
                         command.category = command.category || folder;
                         this.client.commands.set(command.data.name, command);
-                        loadedCommands.add(command.data.name);
                         
                         // Handle aliases
                         if (command.aliases) {
                             command.aliases.forEach(alias => {
-                                if (!this.client.aliases.has(alias)) {
-                                    this.client.aliases.set(alias, command.data.name);
-                                }
+                                this.client.aliases.set(alias, command.data.name);
                             });
                         }
                         
                         commandCount++;
-                        this.logger.debug(`Loaded command: ${command.data.name} (${folder})`);
+                        if (this.logger) {
+                            this.logger.debug(`Loaded command: ${command.data.name} (${folder})`);
+                        }
                     } else {
-                        this.logger.warn(`Command ${file} is missing required properties`);
+                        if (this.logger) {
+                            this.logger.warn(`Command ${file} is missing required properties`);
+                        }
                     }
                 } catch (error) {
-                    this.logger.error(`Failed to load command ${file}:`, error);
+                    if (this.logger) {
+                        this.logger.error(`Failed to load command ${file}:`, error);
+                    }
                 }
             }
         }
 
         this.addInitStep('Commands', `Loaded ${commandCount} slash commands`);
-        this.logger.info(`✅ Loaded ${commandCount} commands`);
+        if (this.logger) {
+            this.logger.info(`✅ Loaded ${commandCount} commands`);
+        }
     }
 
     async loadEvents() {
         const eventsPath = join(__dirname, '../events');
-        if (!existsSync(eventsPath)) {
-            this.logger.warn('Events directory not found, skipping event loading');
-            this.addInitStep('Events', 'No events loaded (directory not found)');
-            return;
-        }
-        
         const eventFiles = readdirSync(eventsPath).filter(file => file.endsWith('.js'));
         let eventCount = 0;
 
@@ -435,23 +430,25 @@ export class BotCore {
                 
                 this.client.events.set(event.name, event);
                 eventCount++;
-                this.logger.debug(`Loaded event: ${event.name}`);
+                if (this.logger) {
+                    this.logger.debug(`Loaded event: ${event.name}`);
+                }
             } catch (error) {
-                this.logger.error(`Failed to load event ${file}:`, error);
+                if (this.logger) {
+                    this.logger.error(`Failed to load event ${file}:`, error);
+                }
             }
         }
 
         this.addInitStep('Events', `Loaded ${eventCount} Discord events`);
-        this.logger.info(`✅ Loaded ${eventCount} events`);
+        if (this.logger) {
+            this.logger.info(`✅ Loaded ${eventCount} events`);
+        }
     }
 
     async loadInteractions() {
         const interactionsPath = join(__dirname, '../interactions');
-        if (!existsSync(interactionsPath)) {
-            this.logger.warn('Interactions directory not found, skipping interaction loading');
-            this.addInitStep('Interactions', 'No interactions loaded (directory not found)');
-            return;
-        }
+        if (!existsSync(interactionsPath)) return;
 
         const interactionFolders = readdirSync(interactionsPath);
         let interactionCount = 0;
@@ -467,11 +464,6 @@ export class BotCore {
                     const filePath = pathToFileURL(join(folderPath, file)).href;
                     const { default: interaction } = await import(filePath);
                     
-                    if (!interaction || !interaction.customId) {
-                        this.logger.warn(`Interaction ${file} is missing customId property`);
-                        continue;
-                    }
-                    
                     switch (folder) {
                         case 'buttons':
                             this.client.buttons.set(interaction.customId, interaction);
@@ -483,27 +475,29 @@ export class BotCore {
                             this.client.modals.set(interaction.customId, interaction);
                             break;
                         case 'contextMenus':
-                            if (interaction.data?.name) {
-                                this.client.contextMenus.set(interaction.data.name, interaction);
-                            }
+                            this.client.contextMenus.set(interaction.data.name, interaction);
                             break;
                         case 'autocomplete':
-                            if (interaction.name) {
-                                this.client.autocomplete.set(interaction.name, interaction);
-                            }
+                            this.client.autocomplete.set(interaction.name, interaction);
                             break;
                     }
                     
                     interactionCount++;
-                    this.logger.debug(`Loaded ${folder} interaction: ${interaction.customId || interaction.data?.name || interaction.name}`);
+                    if (this.logger) {
+                        this.logger.debug(`Loaded ${folder} interaction: ${interaction.customId || interaction.data?.name || interaction.name}`);
+                    }
                 } catch (error) {
-                    this.logger.error(`Failed to load interaction ${file}:`, error);
+                    if (this.logger) {
+                        this.logger.error(`Failed to load interaction ${file}:`, error);
+                    }
                 }
             }
         }
 
         this.addInitStep('Interactions', `Loaded ${interactionCount} interactive components`);
-        this.logger.info(`✅ Loaded ${interactionCount} interactions`);
+        if (this.logger) {
+            this.logger.info(`✅ Loaded ${interactionCount} interactions`);
+        }
     }
 
     async initializeAllManagers() {
@@ -518,9 +512,13 @@ export class BotCore {
             if (manager && typeof manager.initialize === 'function') {
                 try {
                     await manager.initialize();
-                    this.logger.debug(`Initialized ${manager.constructor.name}`);
+                    if (this.logger) {
+                        this.logger.debug(`Initialized ${manager.constructor.name}`);
+                    }
                 } catch (error) {
-                    this.logger.error(`Failed to initialize ${manager.constructor.name}:`, error);
+                    if (this.logger) {
+                        this.logger.error(`Failed to initialize ${manager.constructor.name}:`, error);
+                    }
                 }
             }
         }
@@ -530,32 +528,33 @@ export class BotCore {
 
     setupErrorHandling() {
         process.on('uncaughtException', (error) => {
-            this.logger.critical('Uncaught Exception:', error);
+            if (this.logger) {
+                this.logger.critical('Uncaught Exception:', error);
+            } else {
+                console.error('Uncaught Exception:', error);
+            }
             if (this.notifications) {
-                try {
-                    this.notifications.sendErrorNotification(error, { type: 'uncaughtException' });
-                } catch (err) {
-                    this.logger.error('Failed to send error notification:', err);
-                }
+                this.notifications.sendErrorNotification(error, { type: 'uncaughtException' });
             }
         });
 
         process.on('unhandledRejection', (reason, promise) => {
-            this.logger.critical('Unhandled Rejection at:', promise, 'reason:', reason);
+            if (this.logger) {
+                this.logger.critical('Unhandled Rejection at:', promise, 'reason:', reason);
+            } else {
+                console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+            }
             if (this.notifications) {
-                try {
-                    this.notifications.sendErrorNotification(
-                        reason instanceof Error ? reason : new Error(String(reason)), 
-                        { type: 'unhandledRejection' }
-                    );
-                } catch (err) {
-                    this.logger.error('Failed to send error notification:', err);
-                }
+                this.notifications.sendErrorNotification(new Error(reason), { type: 'unhandledRejection' });
             }
         });
 
         process.on('warning', (warning) => {
-            this.logger.warn('Process Warning:', warning);
+            if (this.logger) {
+                this.logger.warn('Process Warning:', warning);
+            } else {
+                console.warn('Process Warning:', warning);
+            }
         });
 
         this.addInitStep('Error Handling', 'Global error handlers configured');
@@ -563,17 +562,29 @@ export class BotCore {
 
     setupGracefulShutdown() {
         const shutdown = async (signal) => {
-            this.logger.info(`Received ${signal}, shutting down gracefully...`);
+            if (this.logger) {
+                this.logger.info(`Received ${signal}, shutting down gracefully...`);
+            } else {
+                console.log(`Received ${signal}, shutting down gracefully...`);
+            }
             
             try {
                 if (this.notifications) {
                     await this.notifications.sendShutdownNotification();
                 }
                 await this.shutdown();
-                this.logger.success('Bot shutdown completed successfully');
+                if (this.logger) {
+                    this.logger.success('Bot shutdown completed successfully');
+                } else {
+                    console.log('Bot shutdown completed successfully');
+                }
                 process.exit(0);
             } catch (error) {
-                this.logger.error('Error during shutdown:', error);
+                if (this.logger) {
+                    this.logger.error('Error during shutdown:', error);
+                } else {
+                    console.error('Error during shutdown:', error);
+                }
                 process.exit(1);
             }
         };
@@ -586,7 +597,11 @@ export class BotCore {
     }
 
     async shutdown() {
-        this.logger.info('🔄 Shutting down bot...');
+        if (this.logger) {
+            this.logger.info('🔄 Shutting down bot...');
+        } else {
+            console.log('🔄 Shutting down bot...');
+        }
         
         try {
             // Stop web server
@@ -595,7 +610,7 @@ export class BotCore {
             }
             
             // Stop monitoring
-            if (this.monitoring && typeof this.monitoring.stop === 'function') {
+            if (this.monitoring) {
                 await this.monitoring.stop();
             }
             
@@ -605,7 +620,7 @@ export class BotCore {
             }
             
             // Close cache connections
-            if (this.cache && typeof this.cache.close === 'function') {
+            if (this.cache) {
                 await this.cache.close();
             }
             
@@ -614,9 +629,17 @@ export class BotCore {
                 this.client.destroy();
             }
             
-            this.logger.info('✅ Bot shutdown completed');
+            if (this.logger) {
+                this.logger.info('✅ Bot shutdown completed');
+            } else {
+                console.log('✅ Bot shutdown completed');
+            }
         } catch (error) {
-            this.logger.error('Error during shutdown:', error);
+            if (this.logger) {
+                this.logger.error('Error during shutdown:', error);
+            } else {
+                console.error('Error during shutdown:', error);
+            }
         }
     }
 
@@ -626,11 +649,11 @@ export class BotCore {
             version: this.version,
             environment: this.environment,
             uptime,
-            guilds: this.client?.guilds?.cache?.size || 0,
-            users: this.client?.users?.cache?.size || 0,
-            commands: this.client?.commands?.size || 0,
+            guilds: this.client.guilds.cache.size,
+            users: this.client.users.cache.size,
+            commands: this.client.commands.size,
             memory: process.memoryUsage(),
-            ping: this.client?.ws?.ping || 0,
+            ping: this.client.ws.ping,
             isInitialized: this.isInitialized,
             initializationSteps: this.initializationSteps.length
         };
