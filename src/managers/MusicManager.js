@@ -298,7 +298,8 @@ export class MusicManager {
             } catch (error) {
                 console.error('Error creating stream:', error);
                 // Fallback to play-dl
-                stream = await playdl.stream(song.url);
+                const playDlStream = await playdl.stream(song.url);
+                stream = playDlStream.stream;
             }
 
             const resource = createAudioResource(stream, {
@@ -325,7 +326,7 @@ export class MusicManager {
                     { name: '📋 Queue', value: `${queue.songs.length} songs`, inline: true }
                 )
                 .setThumbnail(song.thumbnail)
-                .setFooter({ text: `Requested by ${song.requestedBy?.username}` })
+                .setFooter({ text: `Requested by ${song.requestedBy?.username || 'Unknown'}` })
                 .setTimestamp();
 
             const controls = this.createMusicControls(queue);
@@ -349,12 +350,16 @@ export class MusicManager {
         } catch (error) {
             console.error('Error starting playback:', error);
             queue.playing = false;
-            await queue.textChannel.send({
-                embeds: [new EmbedBuilder()
-                    .setColor('#FF0000')
-                    .setDescription('❌ Failed to play the song. Skipping to next...')
-                ]
-            });
+            try {
+                await queue.textChannel.send({
+                    embeds: [new EmbedBuilder()
+                        .setColor('#FF0000')
+                        .setDescription('❌ Failed to play the song. Skipping to next...')
+                    ]
+                });
+            } catch (sendError) {
+                console.error('Error sending failure message:', sendError);
+            }
             this.handleSongEnd(guildId);
         }
     }
@@ -561,7 +566,7 @@ export class MusicManager {
     }
 
     createMusicControls(queue) {
-        const row1 = new ActionRowBuilder()
+        const row = new ActionRowBuilder()
             .addComponents(
                 new ButtonBuilder()
                     .setCustomId('music_control_previous')
@@ -591,7 +596,7 @@ export class MusicManager {
                     .setEmoji('📋')
             );
 
-        return row1;
+        return row;
     }
 
     calculateTotalDuration(songs) {

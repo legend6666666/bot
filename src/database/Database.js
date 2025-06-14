@@ -18,6 +18,8 @@ export class Database {
         this.isInitialized = false;
         this.isInitializing = false;
         this.inMemoryMode = false;
+        this.errorCount = 0;
+        this.maxErrors = 3;
     }
 
     async initialize() {
@@ -59,57 +61,19 @@ export class Database {
                 this.db = null;
             }
 
-            // Open database connection with retry logic
-            let retries = 3;
-            let lastError = null;
-            
-            while (retries > 0) {
-                try {
-                    this.db = await open({
-                        filename: this.dbFile,
-                        driver: sqlite3.Database,
-                        mode: sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE
-                    });
-                    
-                    // Configure database settings with timeout
-                    await this.db.exec('PRAGMA busy_timeout = 30000'); // 30 second timeout
-                    await this.db.exec('PRAGMA journal_mode = DELETE'); // Use DELETE instead of WAL mode
-                    await this.db.exec('PRAGMA foreign_keys = ON');
-                    await this.db.exec('PRAGMA synchronous = NORMAL');
-                    await this.db.exec('PRAGMA cache_size = 1000');
-                    await this.db.exec('PRAGMA temp_store = MEMORY');
-                    
-                    break;
-                } catch (error) {
-                    lastError = error;
-                    
-                    if (error.code === 'SQLITE_BUSY' && retries > 1) {
-                        this.logger.warn(`Database busy, retrying... (${retries - 1} attempts left)`);
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                        retries--;
-                    } else if (error.code === 'SQLITE_CANTOPEN' || 
-                              error.message.includes('disk I/O error') || 
-                              error.message.includes('SQLITE_IOERR')) {
-                        this.logger.warn('Database file access error, falling back to in-memory database');
-                        await this.initializeInMemoryDatabase();
-                        break;
-                    } else {
-                        throw error;
-                    }
-                }
-            }
-            
-            // If we exhausted retries, try in-memory mode
-            if (retries === 0 && lastError) {
-                this.logger.warn('Database connection retries exhausted, falling back to in-memory database');
+            // Try to initialize the file-based database first
+            try {
+                await this.initializeFileDatabase();
+                this.inMemoryMode = false;
+            } catch (error) {
+                this.logger.warn(`File database initialization failed: ${error.message}`);
+                this.logger.warn('Falling back to in-memory database');
                 await this.initializeInMemoryDatabase();
+                this.inMemoryMode = true;
             }
 
             // Create all tables
             await this.createTables();
-            
-            // Update existing tables if needed
-            await this.updateTables();
             
             // Create indexes
             await this.createIndexes();
@@ -118,7 +82,7 @@ export class Database {
             await this.createTriggers();
             
             this.isInitialized = true;
-            this.logger.success('Database initialized successfully');
+            this.logger.success(`Database initialized successfully (${this.inMemoryMode ? 'in-memory mode' : 'file mode'})`);
             
             // Start maintenance tasks
             this.startMaintenanceTasks();
@@ -126,18 +90,69 @@ export class Database {
         } catch (error) {
             this.logger.error('Failed to initialize database:', error);
             
-            // Try to fall back to in-memory database as a last resort
-            try {
-                this.logger.warn('Attempting to fall back to in-memory database after initialization error');
-                await this.initializeInMemoryDatabase();
-                this.isInitialized = true;
-                this.logger.success('In-memory database initialized successfully');
-            } catch (memoryError) {
-                this.logger.error('Failed to initialize in-memory database:', memoryError);
+            // Last resort: try in-memory database
+            if (!this.inMemoryMode) {
+                try {
+                    this.logger.warn('Attempting to initialize in-memory database as last resort');
+                    await this.initializeInMemoryDatabase();
+                    await this.createTables();
+                    this.inMemoryMode = true;
+                    this.isInitialized = true;
+                    this.logger.success('In-memory database initialized as fallback');
+                } catch (memError) {
+                    this.logger.critical('Failed to initialize in-memory database:', memError);
+                    throw error;
+                }
+            } else {
                 throw error;
             }
         } finally {
             this.isInitializing = false;
+        }
+    }
+
+    async initializeFileDatabase() {
+        // Open database connection with retry logic
+        let retries = 3;
+        let lastError = null;
+        
+        while (retries > 0) {
+            try {
+                this.db = await open({
+                    filename: this.dbFile,
+                    driver: sqlite3.Database,
+                    mode: sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE
+                });
+                
+                // Configure database settings with timeout
+                await this.db.exec('PRAGMA busy_timeout = 30000'); // 30 second timeout
+                await this.db.exec('PRAGMA journal_mode = DELETE'); // Use DELETE instead of WAL mode
+                await this.db.exec('PRAGMA foreign_keys = ON');
+                await this.db.exec('PRAGMA synchronous = NORMAL');
+                await this.db.exec('PRAGMA cache_size = 1000');
+                await this.db.exec('PRAGMA temp_store = MEMORY');
+                
+                // Test the connection with a simple query
+                await this.db.get('SELECT 1');
+                
+                this.logger.info('File-based database connection established');
+                return;
+            } catch (error) {
+                lastError = error;
+                
+                if (error.code === 'SQLITE_BUSY' && retries > 1) {
+                    this.logger.warn(`Database busy, retrying... (${retries - 1} attempts left)`);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } else {
+                    this.logger.error(`Database connection error: ${error.message}`);
+                    retries = 0; // Force exit from loop
+                }
+            }
+            retries--;
+        }
+        
+        if (lastError) {
+            throw lastError;
         }
     }
 
@@ -303,7 +318,7 @@ export class Database {
                 accepted_at DATETIME
             )`,
 
-            // Analytics tables
+            // Command usage table
             `CREATE TABLE IF NOT EXISTS command_usage (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 command TEXT NOT NULL,
@@ -340,146 +355,6 @@ export class Database {
         }
 
         this.logger.debug('All database tables created');
-    }
-
-    async updateTables() {
-        try {
-            // Check if analytics_events table exists and get its schema
-            const tableExists = await this.db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='analytics_events'");
-            
-            if (tableExists) {
-                // Get current column information
-                const columns = await this.db.all("PRAGMA table_info(analytics_events)");
-                const hasDataColumn = columns.some(col => col.name === 'data');
-                const timestampColumn = columns.find(col => col.name === 'timestamp');
-                
-                // Check if we need to migrate the analytics_events table
-                let needsMigration = false;
-                
-                if (!hasDataColumn) {
-                    this.logger.info('Missing data column detected in analytics_events table');
-                    needsMigration = true;
-                }
-                
-                if (!timestampColumn) {
-                    this.logger.info('Missing timestamp column detected in analytics_events table');
-                    needsMigration = true;
-                } else if (timestampColumn.type !== 'TEXT' && timestampColumn.type !== 'DATETIME') {
-                    this.logger.info(`Incorrect timestamp column type detected: ${timestampColumn.type}, expected TEXT or DATETIME`);
-                    needsMigration = true;
-                }
-                
-                if (needsMigration) {
-                    this.logger.info('Migrating analytics_events table to fix datatype issues...');
-                    await this.migrateAnalyticsEventsTable();
-                }
-            }
-            
-            this.logger.debug('Database table updates completed');
-        } catch (error) {
-            this.logger.error('Error updating database tables:', error);
-            // Don't throw here as this is not critical for basic functionality
-        }
-    }
-
-    async migrateAnalyticsEventsTable() {
-        try {
-            // Create a backup table name with timestamp
-            const backupTableName = `analytics_events_backup_${Date.now()}`;
-            
-            // Rename the existing table to backup
-            await this.db.exec(`ALTER TABLE analytics_events RENAME TO ${backupTableName}`);
-            
-            // Create the new table with correct schema
-            await this.db.exec(`
-                CREATE TABLE analytics_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    event_type TEXT NOT NULL,
-                    event_name TEXT NOT NULL,
-                    user_id TEXT,
-                    guild_id TEXT,
-                    data TEXT DEFAULT '{}',
-                    timestamp TEXT DEFAULT (datetime('now')),
-                    session_id TEXT,
-                    ip_address TEXT,
-                    user_agent TEXT
-                )
-            `);
-            
-            // Get the columns from the backup table
-            const backupColumns = await this.db.all(`PRAGMA table_info(${backupTableName})`);
-            const backupColumnNames = backupColumns.map(col => col.name);
-            
-            // Prepare the column mapping for data migration
-            const commonColumns = ['id', 'event_type', 'event_name', 'user_id', 'guild_id', 'session_id', 'ip_address', 'user_agent'];
-            const selectColumns = [];
-            const insertColumns = [];
-            
-            for (const col of commonColumns) {
-                if (backupColumnNames.includes(col)) {
-                    selectColumns.push(col);
-                    insertColumns.push(col);
-                }
-            }
-            
-            // Handle data column
-            if (backupColumnNames.includes('data')) {
-                selectColumns.push('data');
-                insertColumns.push('data');
-            } else {
-                selectColumns.push("'{}' as data");
-                insertColumns.push('data');
-            }
-            
-            // Handle timestamp column with conversion
-            if (backupColumnNames.includes('timestamp')) {
-                // Try to convert timestamp - if it's a number (Unix timestamp), convert it
-                selectColumns.push(`
-                    CASE 
-                        WHEN typeof(timestamp) = 'integer' OR typeof(timestamp) = 'real' THEN 
-                            datetime(timestamp / 1000, 'unixepoch')
-                        WHEN timestamp IS NULL OR timestamp = '' THEN 
-                            datetime('now')
-                        ELSE 
-                            timestamp
-                    END as timestamp
-                `);
-            } else {
-                selectColumns.push("datetime('now') as timestamp");
-            }
-            insertColumns.push('timestamp');
-            
-            // Copy data from backup table to new table
-            const selectQuery = selectColumns.join(', ');
-            const insertQuery = insertColumns.join(', ');
-            
-            await this.db.exec(`
-                INSERT INTO analytics_events (${insertQuery})
-                SELECT ${selectQuery}
-                FROM ${backupTableName}
-            `);
-            
-            // Drop the backup table
-            await this.db.exec(`DROP TABLE ${backupTableName}`);
-            
-            this.logger.success('Analytics events table migration completed successfully');
-            
-        } catch (error) {
-            this.logger.error('Failed to migrate analytics_events table:', error);
-            // Try to restore from backup if it exists
-            try {
-                const backupTableName = `analytics_events_backup_${Date.now()}`;
-                const backupExists = await this.db.get(`SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'analytics_events_backup_%'`);
-                if (backupExists) {
-                    await this.db.exec('DROP TABLE IF EXISTS analytics_events');
-                    await this.db.exec(`ALTER TABLE ${backupExists.name} RENAME TO analytics_events`);
-                    this.logger.info('Restored analytics_events table from backup');
-                }
-            } catch (restoreError) {
-                this.logger.error('Failed to restore from backup:', restoreError);
-            }
-            throw error;
-        }
     }
 
     async createIndexes() {
@@ -580,7 +455,7 @@ export class Database {
             }
             return user;
         } catch (error) {
-            this.logger.error(`Error getting user ${userId}:`, error);
+            this.handleDatabaseError(error, 'getUser');
             // Return a default user object if database fails
             return {
                 id: userId,
@@ -605,7 +480,7 @@ export class Database {
             await this.db.run(`UPDATE users SET ${setClause} WHERE id = ?`, [...values, userId]);
             return true;
         } catch (error) {
-            this.logger.error(`Error updating user ${userId}:`, error);
+            this.handleDatabaseError(error, 'updateUser');
             return false;
         }
     }
@@ -620,7 +495,7 @@ export class Database {
             }
             return guild;
         } catch (error) {
-            this.logger.error(`Error getting guild ${guildId}:`, error);
+            this.handleDatabaseError(error, 'getGuild');
             // Return a default guild object if database fails
             return {
                 id: guildId,
@@ -641,7 +516,7 @@ export class Database {
             );
             return result.lastID;
         } catch (error) {
-            this.logger.error('Error adding mod log:', error);
+            this.handleDatabaseError(error, 'addModLog');
             return null;
         }
     }
@@ -659,7 +534,7 @@ export class Database {
                 [guildId, limit]
             );
         } catch (error) {
-            this.logger.error('Error getting mod logs:', error);
+            this.handleDatabaseError(error, 'getModLogs');
             return [];
         }
     }
@@ -678,7 +553,7 @@ export class Database {
             await this.updateUser(userId, { coins: balanceAfter });
             return true;
         } catch (error) {
-            this.logger.error('Error adding transaction:', error);
+            this.handleDatabaseError(error, 'addTransaction');
             return false;
         }
     }
@@ -686,20 +561,17 @@ export class Database {
     // Analytics operations
     async addAnalyticsEvent(eventType, eventName, userId = null, guildId = null, data = {}, sessionId = null, ipAddress = null, userAgent = null) {
         try {
-            // Ensure timestamp is in the correct format
-            const timestamp = new Date().toISOString();
-            
             // Ensure data is a string
             const dataStr = typeof data === 'string' ? data : JSON.stringify(data);
             
             await this.db.run(
-                'INSERT INTO analytics_events (event_type, event_name, user_id, guild_id, data, timestamp, session_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [eventType, eventName, userId, guildId, dataStr, timestamp, sessionId, ipAddress, userAgent]
+                'INSERT INTO analytics_events (event_type, event_name, user_id, guild_id, data, timestamp, session_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, datetime("now"), ?, ?, ?)',
+                [eventType, eventName, userId, guildId, dataStr, sessionId, ipAddress, userAgent]
             );
             return true;
         } catch (error) {
-            this.logger.error('Failed to store analytics event:', error);
-            throw error;
+            this.handleDatabaseError(error, 'addAnalyticsEvent');
+            return false;
         }
     }
 
@@ -716,7 +588,7 @@ export class Database {
                 [limit, offset]
             );
         } catch (error) {
-            this.logger.error('Error getting analytics events:', error);
+            this.handleDatabaseError(error, 'getAnalyticsEvents');
             return [];
         }
     }
@@ -743,21 +615,21 @@ export class Database {
             
             return await this.db.all(query, params);
         } catch (error) {
-            this.logger.error('Error getting leaderboard:', error);
+            this.handleDatabaseError(error, 'getLeaderboard');
             return [];
         }
     }
 
-    // Analytics operations
+    // Command logging
     async logCommand(command, userId, guildId, success = true, executionTime = 0, errorMessage = null) {
         try {
             await this.db.run(
                 'INSERT INTO command_usage (command, user_id, guild_id, success, execution_time, error_message) VALUES (?, ?, ?, ?, ?, ?)',
-                [command, userId, guildId, success, executionTime, errorMessage]
+                [command, userId, guildId, success ? 1 : 0, executionTime, errorMessage]
             );
             return true;
         } catch (error) {
-            this.logger.error('Error logging command:', error);
+            this.handleDatabaseError(error, 'logCommand');
             return false;
         }
     }
@@ -779,8 +651,57 @@ export class Database {
                 ORDER BY total_uses DESC
             `, [since]);
         } catch (error) {
-            this.logger.error('Error getting command stats:', error);
+            this.handleDatabaseError(error, 'getCommandStats');
             return [];
+        }
+    }
+
+    // Error handling
+    handleDatabaseError(error, operation) {
+        this.errorCount++;
+        
+        // Check if this is a disk I/O error
+        const isDiskError = error.message && (
+            error.message.includes('disk I/O error') ||
+            error.message.includes('SQLITE_IOERR') ||
+            error.message.includes('SQLITE_BUSY') ||
+            error.message.includes('SQLITE_CORRUPT') ||
+            error.message.includes('SQLITE_CANTOPEN') ||
+            error.message.includes('SQLITE_MISMATCH')
+        );
+        
+        if (isDiskError && !this.inMemoryMode && this.errorCount >= this.maxErrors) {
+            this.logger.warn(`Multiple database errors detected (${this.errorCount}). Switching to in-memory mode.`);
+            this.switchToInMemoryMode();
+        }
+        
+        this.logger.error(`Database error in ${operation}: ${error.message}`);
+    }
+
+    async switchToInMemoryMode() {
+        if (this.inMemoryMode) return; // Already in memory mode
+        
+        try {
+            // Close existing connection
+            if (this.db) {
+                try {
+                    await this.db.close();
+                } catch (error) {
+                    // Ignore close errors
+                }
+            }
+            
+            // Initialize in-memory database
+            await this.initializeInMemoryDatabase();
+            
+            // Create tables, indexes, and triggers
+            await this.createTables();
+            await this.createIndexes();
+            await this.createTriggers();
+            
+            this.logger.warn('Switched to in-memory database mode due to persistent disk errors');
+        } catch (error) {
+            this.logger.error('Failed to switch to in-memory mode:', error);
         }
     }
 
@@ -794,7 +715,7 @@ export class Database {
                     this.logger.debug('Database vacuum completed');
                 }
             } catch (error) {
-                this.logger.error('Database vacuum failed:', error);
+                this.handleDatabaseError(error, 'vacuum');
             }
         }, 24 * 60 * 60 * 1000);
 
@@ -804,7 +725,7 @@ export class Database {
                 await this.db.exec('ANALYZE');
                 this.logger.debug('Database analyze completed');
             } catch (error) {
-                this.logger.error('Database analyze failed:', error);
+                this.handleDatabaseError(error, 'analyze');
             }
         }, 6 * 60 * 60 * 1000);
     }
@@ -824,8 +745,8 @@ export class Database {
             
             return backupFile;
         } catch (error) {
-            this.logger.error('Database backup failed:', error);
-            throw error;
+            this.handleDatabaseError(error, 'backup');
+            return null;
         }
     }
 
@@ -843,9 +764,13 @@ export class Database {
                     (SELECT COUNT(*) FROM analytics_events) as total_analytics_events
             `);
             
-            return stats;
+            return {
+                ...stats,
+                in_memory_mode: this.inMemoryMode,
+                error_count: this.errorCount
+            };
         } catch (error) {
-            this.logger.error('Error getting database stats:', error);
+            this.handleDatabaseError(error, 'getStats');
             return {
                 total_users: 0,
                 total_guilds: 0,
@@ -855,7 +780,8 @@ export class Database {
                 total_tickets: 0,
                 total_playlists: 0,
                 total_analytics_events: 0,
-                in_memory_mode: this.inMemoryMode
+                in_memory_mode: this.inMemoryMode,
+                error_count: this.errorCount
             };
         }
     }

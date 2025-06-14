@@ -3,60 +3,72 @@ import { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } from 'discord
 export default {
     customId: 'help_category',
     async execute(interaction) {
-        const category = interaction.values[0];
-        const commands = this.getCommandsByCategory(category, interaction.client);
-
-        const embed = new EmbedBuilder()
-            .setColor(this.getCategoryColor(category))
-            .setTitle(`${this.getCategoryEmoji(category)} ${category.charAt(0).toUpperCase() + category.slice(1)} Commands`)
-            .setDescription(`Here are all the ${category} commands available:`)
-            .setTimestamp();
-
-        // Add commands to embed
-        const commandList = commands.map(cmd => 
-            `**/${cmd.data.name}** - ${cmd.data.description}`
-        ).join('\n');
-
-        if (commandList.length > 0) {
-            embed.addFields({ name: 'Commands', value: commandList.slice(0, 1024) });
-        }
-
-        // Create new select menu to allow category switching
-        const selectMenu = new StringSelectMenuBuilder()
-            .setCustomId('help_category')
-            .setPlaceholder('Select another category')
-            .addOptions([
-                { label: '🎵 Music Commands', value: 'music', description: 'Play, queue, and control music' },
-                { label: '🛡️ Security Commands', value: 'security', description: 'Advanced security features' },
-                { label: '💰 Economy Commands', value: 'economy', description: 'Virtual economy system' },
-                { label: '⚖️ Moderation Commands', value: 'moderation', description: 'Server moderation tools' },
-                { label: '🔧 Utility Commands', value: 'utility', description: 'Helpful utility commands' },
-                { label: '👥 Social Commands', value: 'social', description: 'Social interaction features' },
-                { label: '🎮 Game Commands', value: 'games', description: 'Fun games and activities' },
-                { label: '😂 Meme Commands', value: 'memes', description: 'Meme generation and fun' },
-                { label: '💖 Anime Commands', value: 'anime', description: 'Anime-related commands' },
-                { label: '📈 Leveling Commands', value: 'leveling', description: 'XP and leveling system' },
-                { label: '🤖 AI Commands', value: 'ai', description: 'AI-powered features' },
-                { label: '🎫 Ticket Commands', value: 'tickets', description: 'Support ticket system' }
-            ]);
-
-        const row = new ActionRowBuilder().addComponents(selectMenu);
-
         try {
-            await interaction.update({ embeds: [embed], components: [row] });
-        } catch (error) {
-            console.error('Error updating help category interaction:', error);
-            // If the interaction has expired, try to send a new message
-            if (error.code === 40060) { // Interaction has already been acknowledged
-                try {
-                    await interaction.followUp({ 
-                        embeds: [embed], 
-                        components: [row],
-                        ephemeral: true
-                    });
-                } catch (followUpError) {
-                    console.error('Failed to follow up with help category:', followUpError);
+            const category = interaction.values[0];
+            const commands = this.getCommandsByCategory(category, interaction.client);
+
+            const embed = new EmbedBuilder()
+                .setColor(this.getCategoryColor(category))
+                .setTitle(`${this.getCategoryEmoji(category)} ${category.charAt(0).toUpperCase() + category.slice(1)} Commands`)
+                .setDescription(`Here are all the ${category} commands available:`)
+                .setTimestamp();
+
+            // Add commands to embed
+            const commandList = commands.map(cmd => 
+                `**/${cmd.data.name}** - ${cmd.data.description}`
+            ).join('\n');
+
+            if (commandList.length > 0) {
+                embed.addFields({ name: 'Commands', value: commandList.slice(0, 1024) });
+            }
+
+            // Create new select menu to allow category switching
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('help_category')
+                .setPlaceholder('Select another category')
+                .addOptions([
+                    { label: '🎵 Music Commands', value: 'music', description: 'Play, queue, and control music' },
+                    { label: '🛡️ Security Commands', value: 'security', description: 'Advanced security features' },
+                    { label: '💰 Economy Commands', value: 'economy', description: 'Virtual economy system' },
+                    { label: '⚖️ Moderation Commands', value: 'moderation', description: 'Server moderation tools' },
+                    { label: '🔧 Utility Commands', value: 'utility', description: 'Helpful utility commands' },
+                    { label: '👥 Social Commands', value: 'social', description: 'Social interaction features' },
+                    { label: '🎮 Game Commands', value: 'games', description: 'Fun games and activities' },
+                    { label: '😂 Meme Commands', value: 'memes', description: 'Meme generation and fun' },
+                    { label: '💖 Anime Commands', value: 'anime', description: 'Anime-related commands' },
+                    { label: '📈 Leveling Commands', value: 'leveling', description: 'XP and leveling system' },
+                    { label: '🤖 AI Commands', value: 'ai', description: 'AI-powered features' },
+                    { label: '🎫 Ticket Commands', value: 'tickets', description: 'Support ticket system' }
+                ]);
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+
+            try {
+                await interaction.update({ embeds: [embed], components: [row] });
+            } catch (error) {
+                console.error('Error updating help category interaction:', error);
+                // If the interaction has expired, try to send a new message
+                if (error.code === 40060) { // Interaction has already been acknowledged
+                    try {
+                        await interaction.followUp({ 
+                            embeds: [embed], 
+                            components: [row],
+                            ephemeral: true
+                        });
+                    } catch (followUpError) {
+                        console.error('Failed to follow up with help category:', followUpError);
+                    }
                 }
+            }
+        } catch (error) {
+            console.error('Help category selection error:', error);
+            try {
+                await interaction.reply({
+                    content: '❌ An error occurred while displaying the help menu.',
+                    ephemeral: true
+                });
+            } catch (replyError) {
+                console.error('Failed to send help category error message:', replyError);
             }
         }
     },

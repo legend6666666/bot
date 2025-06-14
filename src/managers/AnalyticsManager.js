@@ -8,6 +8,8 @@ export class AnalyticsManager {
         this.events = [];
         this.startTime = Date.now();
         this.useInMemoryOnly = false;
+        this.errorCount = 0;
+        this.maxErrors = 3;
         
         this.initializeMetrics();
         this.startMetricsCollection();
@@ -47,14 +49,13 @@ export class AnalyticsManager {
         }
         
         // Store in database if not in memory-only mode
-        if (!this.useInMemoryOnly) {
+        if (!this.useInMemoryOnly && this.database && this.database.isInitialized) {
             this.storeEvent(eventData).catch(error => {
-                // If we get a disk I/O error, switch to memory-only mode
-                if (error.message && (error.message.includes('disk I/O error') || 
-                                     error.message.includes('SQLITE_IOERR') ||
-                                     error.message.includes('SQLITE_BUSY') ||
-                                     error.message.includes('SQLITE_CORRUPT'))) {
-                    this.logger.warn('Database I/O error detected, switching to memory-only mode for analytics');
+                this.errorCount++;
+                
+                // If we get persistent database errors, switch to memory-only mode
+                if (this.errorCount >= this.maxErrors) {
+                    this.logger.warn(`Multiple database errors (${this.errorCount}), switching to memory-only mode for analytics`);
                     this.useInMemoryOnly = true;
                 }
             });
@@ -318,79 +319,75 @@ export class AnalyticsManager {
             errorsPerHour: this.getMetric('errors_occurred') / (uptime / 3600000),
             memoryUsage: process.memoryUsage(),
             cpuUsage: process.cpuUsage(),
-            inMemoryMode: this.useInMemoryOnly
+            inMemoryMode: this.useInMemoryOnly,
+            errorCount: this.errorCount
         };
     }
 
     // Database operations
     async storeEvent(event) {
+        if (!this.database || !this.database.db || this.useInMemoryOnly) {
+            return;
+        }
+        
         try {
-            if (this.database && this.database.db && !this.useInMemoryOnly) {
-                // Map event data to match the analytics_events table structure
-                const userId = event.data.userId || null;
-                const guildId = event.data.guildId || null;
-                const sessionId = event.data.sessionId || null;
-                const ipAddress = event.data.ipAddress || null;
-                const userAgent = event.data.userAgent || null;
-                const data = JSON.stringify(event.data);
-                const timestamp = new Date(event.timestamp).toISOString();
-
-                try {
-                    // Use the database's addAnalyticsEvent method
-                    await this.database.addAnalyticsEvent(
-                        event.event_type,
-                        event.event_name,
-                        userId,
-                        guildId,
-                        data,
-                        sessionId,
-                        ipAddress,
-                        userAgent
-                    );
-                } catch (error) {
-                    // If we get a database error, log it but don't throw
-                    // This allows the bot to continue functioning even with database issues
-                    this.logger.error('Failed to store analytics event:', error);
-                    
-                    // If it's a disk I/O error, switch to memory-only mode
-                    if (error.message && (error.message.includes('disk I/O error') || 
-                                         error.message.includes('SQLITE_IOERR') ||
-                                         error.message.includes('SQLITE_BUSY') ||
-                                         error.message.includes('SQLITE_CORRUPT'))) {
-                        this.logger.warn('Database I/O error detected, switching to memory-only mode for analytics');
-                        this.useInMemoryOnly = true;
-                    }
-                }
-            }
+            // Map event data to match the analytics_events table structure
+            const userId = event.data.userId || null;
+            const guildId = event.data.guildId || null;
+            const sessionId = event.data.sessionId || null;
+            const ipAddress = event.data.ipAddress || null;
+            const userAgent = event.data.userAgent || null;
+            const data = JSON.stringify(event.data);
+            
+            // Use the database's addAnalyticsEvent method
+            await this.database.addAnalyticsEvent(
+                event.event_type,
+                event.event_name,
+                userId,
+                guildId,
+                data,
+                sessionId,
+                ipAddress,
+                userAgent
+            );
         } catch (error) {
+            this.errorCount++;
             this.logger.error('Failed to store analytics event:', error);
-            // Don't throw the error to prevent disrupting the bot's operation
+            
+            // If we get too many errors, switch to memory-only mode
+            if (this.errorCount >= this.maxErrors) {
+                this.logger.warn(`Multiple database errors (${this.errorCount}), switching to memory-only mode for analytics`);
+                this.useInMemoryOnly = true;
+            }
+            
+            throw error;
         }
     }
 
     async getStoredEvents(limit = 1000, offset = 0) {
+        if (this.useInMemoryOnly || !this.database || !this.database.db) {
+            return this.events.slice(-limit);
+        }
+        
         try {
-            if (this.database && this.database.db && !this.useInMemoryOnly) {
-                try {
-                    const events = await this.database.getAnalyticsEvents(null, limit, offset);
-                    
-                    return events.map(event => ({
-                        ...event,
-                        data: event.data ? JSON.parse(event.data) : {}
-                    }));
-                } catch (error) {
-                    this.logger.error('Failed to get stored events:', error);
-                    // If database access fails, fall back to in-memory events
-                    this.useInMemoryOnly = true;
-                    return this.events.slice(-limit);
-                }
+            const events = await this.database.getAnalyticsEvents(null, limit, offset);
+            
+            return events.map(event => ({
+                ...event,
+                data: event.data ? JSON.parse(event.data) : {}
+            }));
+        } catch (error) {
+            this.errorCount++;
+            this.logger.error('Failed to get stored events:', error);
+            
+            // If we get too many errors, switch to memory-only mode
+            if (this.errorCount >= this.maxErrors) {
+                this.logger.warn(`Multiple database errors (${this.errorCount}), switching to memory-only mode for analytics`);
+                this.useInMemoryOnly = true;
             }
             
-            // If we're in memory-only mode or database isn't available, return in-memory events
+            // Fall back to in-memory events
             return this.events.slice(-limit);
-        } catch (error) {
-            this.logger.error('Failed to get stored events:', error);
-            return [];
         }
     }
 
@@ -423,7 +420,8 @@ export class AnalyticsManager {
                 system: cpuUsage.system
             },
             uptime: process.uptime(),
-            inMemoryMode: this.useInMemoryOnly
+            inMemoryMode: this.useInMemoryOnly,
+            errorCount: this.errorCount
         });
     }
 
@@ -456,15 +454,15 @@ export class AnalyticsManager {
             topCommands: this.getTopCommands(),
             topUsers: this.getTopUsers(),
             topGuilds: this.getTopGuilds(),
-            inMemoryMode: this.useInMemoryOnly
+            inMemoryMode: this.useInMemoryOnly,
+            errorCount: this.errorCount
         };
         
         switch (format) {
             case 'json':
                 return JSON.stringify(data, null, 2);
             case 'csv':
-                // Implement CSV export if needed
-                return this.convertToCSV(data.events);
+                return this.convertToCSV(this.events);
             default:
                 return data;
         }

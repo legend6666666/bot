@@ -55,6 +55,7 @@ export default {
         }
 
         try {
+            // Use a safer method to search for songs
             const results = await interaction.client.music.searchSongs(focusedValue, 10);
             
             const choices = results.map(video => ({
