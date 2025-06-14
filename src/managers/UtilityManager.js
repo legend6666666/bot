@@ -197,152 +197,6 @@ export class UtilityManager {
         }
     }
 
-    async deleteReminder(userId, reminderId) {
-        try {
-            const reminder = this.reminders.get(reminderId);
-            if (!reminder) {
-                return { success: false, error: 'Reminder not found' };
-            }
-
-            if (reminder.userId !== userId) {
-                return { success: false, error: 'You can only delete your own reminders' };
-            }
-
-            this.reminders.delete(reminderId);
-            return { success: true, message: 'Reminder deleted successfully' };
-
-        } catch (error) {
-            this.logger.error('Error deleting reminder:', error);
-            return { success: false, error: 'Failed to delete reminder' };
-        }
-    }
-
-    getUserReminders(userId) {
-        const userReminders = [];
-        for (const [id, reminder] of this.reminders.entries()) {
-            if (reminder.userId === userId) {
-                userReminders.push({ id, ...reminder });
-            }
-        }
-        return userReminders.sort((a, b) => a.time - b.time);
-    }
-
-    // Poll System
-    async createPoll(channelId, question, options, duration = 300000) {
-        try {
-            if (options.length < 2 || options.length > 10) {
-                return { success: false, error: 'Polls must have between 2 and 10 options' };
-            }
-
-            const pollId = this.generateId();
-            const endTime = Date.now() + duration;
-
-            const poll = {
-                id: pollId,
-                channelId,
-                question,
-                options: options.map((option, index) => ({
-                    text: option,
-                    votes: 0,
-                    voters: new Set(),
-                    emoji: this.getNumberEmoji(index + 1)
-                })),
-                endTime,
-                active: true,
-                voters: new Set()
-            };
-
-            this.polls.set(pollId, poll);
-
-            const embed = new EmbedBuilder()
-                .setColor('#0099FF')
-                .setTitle('📊 Poll')
-                .setDescription(`**${question}**\n\n${poll.options.map(opt => `${opt.emoji} ${opt.text}`).join('\n')}`)
-                .addFields({ name: 'Duration', value: this.formatDuration(duration), inline: true })
-                .setFooter({ text: `Poll ID: ${pollId} • React to vote!` })
-                .setTimestamp();
-
-            // Auto-end poll
-            setTimeout(() => {
-                this.endPoll(pollId);
-            }, duration);
-
-            return { success: true, embed, poll };
-
-        } catch (error) {
-            this.logger.error('Error creating poll:', error);
-            return { success: false, error: 'Failed to create poll' };
-        }
-    }
-
-    async votePoll(pollId, userId, optionIndex) {
-        try {
-            const poll = this.polls.get(pollId);
-            if (!poll) {
-                return { success: false, error: 'Poll not found' };
-            }
-
-            if (!poll.active) {
-                return { success: false, error: 'This poll has ended' };
-            }
-
-            if (poll.voters.has(userId)) {
-                return { success: false, error: 'You have already voted in this poll' };
-            }
-
-            if (optionIndex < 0 || optionIndex >= poll.options.length) {
-                return { success: false, error: 'Invalid option' };
-            }
-
-            // Add vote
-            poll.options[optionIndex].votes++;
-            poll.options[optionIndex].voters.add(userId);
-            poll.voters.add(userId);
-
-            return { success: true, poll };
-
-        } catch (error) {
-            this.logger.error('Error voting in poll:', error);
-            return { success: false, error: 'Failed to vote' };
-        }
-    }
-
-    async endPoll(pollId) {
-        try {
-            const poll = this.polls.get(pollId);
-            if (!poll) return;
-
-            poll.active = false;
-
-            // Find winner
-            const winner = poll.options.reduce((prev, current) => 
-                prev.votes > current.votes ? prev : current
-            );
-
-            const totalVotes = poll.options.reduce((sum, opt) => sum + opt.votes, 0);
-
-            const embed = new EmbedBuilder()
-                .setColor('#FFD700')
-                .setTitle('📊 Poll Results')
-                .setDescription(`**${poll.question}**\n\n${poll.options.map(opt => {
-                    const percentage = totalVotes > 0 ? Math.round((opt.votes / totalVotes) * 100) : 0;
-                    const bar = this.createProgressBar(percentage);
-                    return `${opt.emoji} ${opt.text}\n${bar} ${opt.votes} votes (${percentage}%)`;
-                }).join('\n\n')}`)
-                .addFields(
-                    { name: '🏆 Winner', value: `${winner.emoji} ${winner.text}`, inline: true },
-                    { name: '📊 Total Votes', value: totalVotes.toString(), inline: true }
-                )
-                .setTimestamp();
-
-            return { success: true, embed, poll };
-
-        } catch (error) {
-            this.logger.error('Error ending poll:', error);
-            return { success: false, error: 'Failed to end poll' };
-        }
-    }
-
     // Calculator
     async calculate(expression) {
         try {
@@ -416,77 +270,6 @@ export class UtilityManager {
         }
     }
 
-    // URL Shortener (Mock)
-    async shortenUrl(url, alias = null) {
-        try {
-            // Validate URL
-            try {
-                new URL(url);
-            } catch {
-                return { success: false, error: 'Invalid URL format' };
-            }
-
-            const shortId = alias || this.generateShortId();
-            const shortUrl = `https://short.ly/${shortId}`;
-
-            this.urlShortener.set(shortId, {
-                originalUrl: url,
-                shortUrl,
-                clicks: 0,
-                created: new Date()
-            });
-
-            const embed = new EmbedBuilder()
-                .setColor('#00FF00')
-                .setTitle('🔗 URL Shortened')
-                .addFields(
-                    { name: 'Original URL', value: url, inline: false },
-                    { name: 'Short URL', value: shortUrl, inline: false },
-                    { name: 'Alias', value: shortId, inline: true }
-                )
-                .setTimestamp();
-
-            return { success: true, embed, shortUrl, shortId };
-
-        } catch (error) {
-            this.logger.error('Error shortening URL:', error);
-            return { success: false, error: 'Failed to shorten URL' };
-        }
-    }
-
-    // Translation (Mock)
-    async translateText(text, fromLang, toLang) {
-        try {
-            // This is a mock implementation
-            // In a real bot, you would use Google Translate API or similar
-            
-            const translations = {
-                'hello': { es: 'hola', fr: 'bonjour', de: 'hallo', it: 'ciao' },
-                'goodbye': { es: 'adiós', fr: 'au revoir', de: 'auf wiedersehen', it: 'ciao' },
-                'thank you': { es: 'gracias', fr: 'merci', de: 'danke', it: 'grazie' }
-            };
-
-            const lowerText = text.toLowerCase();
-            const translation = translations[lowerText]?.[toLang] || `[Translation of "${text}" to ${toLang}]`;
-
-            const embed = new EmbedBuilder()
-                .setColor('#0099FF')
-                .setTitle('🌐 Translation')
-                .addFields(
-                    { name: `Original (${fromLang})`, value: text, inline: false },
-                    { name: `Translation (${toLang})`, value: translation, inline: false }
-                )
-                .setFooter({ text: 'Note: This is a mock translation service' })
-                .setTimestamp();
-
-            return { success: true, embed, translation };
-
-        } catch (error) {
-            this.logger.error('Error translating text:', error);
-            return { success: false, error: 'Failed to translate text' };
-        }
-    }
-
     // Utility Methods
     parseTime(timeString) {
         const regex = /(\d+)([smhdw])/g;
@@ -525,23 +308,8 @@ export class UtilityManager {
         return parts.slice(0, 2).join(', ') || '0 seconds';
     }
 
-    getNumberEmoji(number) {
-        const emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
-        return emojis[number - 1] || '❓';
-    }
-
-    createProgressBar(percentage, length = 10) {
-        const filled = Math.round((percentage / 100) * length);
-        const empty = length - filled;
-        return '█'.repeat(filled) + '░'.repeat(empty);
-    }
-
     generateId() {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
-    }
-
-    generateShortId() {
-        return Math.random().toString(36).substr(2, 8);
     }
 
     // Reminder Check Loop
@@ -573,33 +341,13 @@ export class UtilityManager {
         }
     }
 
-    // Cleanup
-    cleanup() {
-        // Clean up expired polls and old data
-        const now = Date.now();
-        const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-
-        for (const [id, poll] of this.polls.entries()) {
-            if (now - poll.endTime > maxAge) {
-                this.polls.delete(id);
-            }
-        }
-
-        // Clean up old URL shortener entries
-        for (const [id, data] of this.urlShortener.entries()) {
-            if (now - data.created.getTime() > 30 * 24 * 60 * 60 * 1000) { // 30 days
-                this.urlShortener.delete(id);
-            }
-        }
-    }
-
     // Statistics
     getStats() {
         return {
             activeReminders: this.reminders.size,
-            activePolls: Array.from(this.polls.values()).filter(p => p.active).length,
-            totalPolls: this.polls.size,
+            activePolls: this.polls.size,
             shortenedUrls: this.urlShortener.size
         };
     }
 }
+</parameter>
