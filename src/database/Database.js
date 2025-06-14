@@ -207,16 +207,16 @@ export class Database {
                 leave_channel TEXT,
                 log_channel TEXT,
                 mute_role TEXT,
-                auto_mod BOOLEAN DEFAULT 0,
-                level_system BOOLEAN DEFAULT 1,
-                economy_system BOOLEAN DEFAULT 1,
+                auto_mod INTEGER DEFAULT 0,
+                level_system INTEGER DEFAULT 1,
+                economy_system INTEGER DEFAULT 1,
                 music_channel TEXT,
                 dj_role TEXT,
                 ticket_category TEXT,
                 ticket_role TEXT,
                 settings TEXT DEFAULT '{}',
                 features TEXT DEFAULT '[]',
-                premium BOOLEAN DEFAULT 0,
+                premium INTEGER DEFAULT 0,
                 premium_expires DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -243,7 +243,7 @@ export class Database {
                 user_id TEXT NOT NULL,
                 moderator_id TEXT NOT NULL,
                 reason TEXT NOT NULL,
-                active BOOLEAN DEFAULT 1,
+                active INTEGER DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
 
@@ -267,7 +267,7 @@ export class Database {
                 name TEXT NOT NULL,
                 description TEXT,
                 songs TEXT DEFAULT '[]',
-                public BOOLEAN DEFAULT 0,
+                public INTEGER DEFAULT 0,
                 plays INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -324,7 +324,7 @@ export class Database {
                 command TEXT NOT NULL,
                 user_id TEXT NOT NULL,
                 guild_id TEXT,
-                success BOOLEAN DEFAULT 1,
+                success INTEGER DEFAULT 1,
                 execution_time INTEGER,
                 error_message TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -473,8 +473,18 @@ export class Database {
 
     async updateUser(userId, data) {
         try {
-            const keys = Object.keys(data);
-            const values = Object.values(data);
+            // Convert boolean values to integers for SQLite
+            const processedData = {};
+            for (const [key, value] of Object.entries(data)) {
+                if (typeof value === 'boolean') {
+                    processedData[key] = value ? 1 : 0;
+                } else {
+                    processedData[key] = value;
+                }
+            }
+            
+            const keys = Object.keys(processedData);
+            const values = Object.values(processedData);
             const setClause = keys.map(key => `${key} = ?`).join(', ');
             
             await this.db.run(`UPDATE users SET ${setClause} WHERE id = ?`, [...values, userId]);
@@ -493,6 +503,15 @@ export class Database {
                 await this.db.run('INSERT INTO guilds (id) VALUES (?)', guildId);
                 guild = await this.db.get('SELECT * FROM guilds WHERE id = ?', guildId);
             }
+            
+            // Convert integer boolean fields to actual booleans
+            if (guild) {
+                guild.auto_mod = guild.auto_mod === 1;
+                guild.level_system = guild.level_system === 1;
+                guild.economy_system = guild.economy_system === 1;
+                guild.premium = guild.premium === 1;
+            }
+            
             return guild;
         } catch (error) {
             this.handleDatabaseError(error, 'getGuild');
@@ -500,10 +519,35 @@ export class Database {
             return {
                 id: guildId,
                 prefix: '!',
-                auto_mod: 0,
-                level_system: 1,
-                economy_system: 1
+                auto_mod: false,
+                level_system: true,
+                economy_system: true,
+                premium: false
             };
+        }
+    }
+
+    async updateGuild(guildId, data) {
+        try {
+            // Convert boolean values to integers for SQLite
+            const processedData = {};
+            for (const [key, value] of Object.entries(data)) {
+                if (typeof value === 'boolean') {
+                    processedData[key] = value ? 1 : 0;
+                } else {
+                    processedData[key] = value;
+                }
+            }
+            
+            const keys = Object.keys(processedData);
+            const values = Object.values(processedData);
+            const setClause = keys.map(key => `${key} = ?`).join(', ');
+            
+            await this.db.run(`UPDATE guilds SET ${setClause} WHERE id = ?`, [...values, guildId]);
+            return true;
+        } catch (error) {
+            this.handleDatabaseError(error, 'updateGuild');
+            return false;
         }
     }
 
@@ -638,7 +682,7 @@ export class Database {
         try {
             const since = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
             
-            return await this.db.all(`
+            const stats = await this.db.all(`
                 SELECT 
                     command,
                     COUNT(*) as total_uses,
@@ -650,6 +694,8 @@ export class Database {
                 GROUP BY command 
                 ORDER BY total_uses DESC
             `, [since]);
+            
+            return stats;
         } catch (error) {
             this.handleDatabaseError(error, 'getCommandStats');
             return [];

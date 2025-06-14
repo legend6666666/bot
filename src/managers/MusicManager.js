@@ -250,7 +250,14 @@ export class MusicManager {
     // Method for autocomplete to use
     async searchSongs(query, limit = 10) {
         try {
-            return await yts.search(query, { limit, type: 'video' });
+            const results = await yts.search(query, { limit, type: 'video' });
+            return results.map(video => ({
+                title: video.title,
+                url: video.url,
+                author: video.channel?.name,
+                duration: video.durationFormatted,
+                thumbnail: video.thumbnail?.url
+            }));
         } catch (error) {
             console.error('Error searching songs for autocomplete:', error);
             return [];
