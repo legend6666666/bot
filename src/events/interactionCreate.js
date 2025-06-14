@@ -51,10 +51,19 @@ export default {
             } catch (error) {
                 console.error(chalk.red(`❌ Error executing ${interaction.commandName}:`), error);
                 
+                // Check for socket errors and provide specific messaging
+                let errorTitle = '❌ Command Error';
+                let errorDescription = 'There was an error while executing this command!';
+                
+                if (error.name === 'SocketError' || error.code === 'UND_ERR_SOCKET') {
+                    errorTitle = '🔌 Network Communication Error';
+                    errorDescription = 'It seems there was a temporary issue with network communication to Discord. Please try the command again in a moment.';
+                }
+
                 const errorEmbed = new EmbedBuilder()
                     .setColor('#FF0000')
-                    .setTitle('❌ Command Error')
-                    .setDescription('There was an error while executing this command!')
+                    .setTitle(errorTitle)
+                    .setDescription(errorDescription)
                     .setTimestamp();
 
                 try {
