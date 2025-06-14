@@ -19,11 +19,25 @@ export class Logger {
         let formattedMessage = `[${timestamp}] [${level.toUpperCase()}] ${message}`;
         
         if (data) {
-            formattedMessage += ` ${JSON.stringify(data, null, 2)}`;
+            if (data instanceof Error) {
+                formattedMessage += ` ${data.message}`;
+            } else if (typeof data === 'object') {
+                try {
+                    formattedMessage += ` ${JSON.stringify(data, null, 2)}`;
+                } catch (e) {
+                    formattedMessage += ` [Object]`;
+                }
+            } else {
+                formattedMessage += ` ${data}`;
+            }
         }
         
         if (context) {
-            formattedMessage += ` Context: ${JSON.stringify(context, null, 2)}`;
+            try {
+                formattedMessage += ` Context: ${JSON.stringify(context, null, 2)}`;
+            } catch (e) {
+                formattedMessage += ` Context: [Object]`;
+            }
         }
         
         return formattedMessage;
@@ -45,19 +59,19 @@ export class Logger {
     }
 
     error(message, error = null, context = null) {
-        const formatted = this.formatMessage('error', message, error?.message || error, context);
+        const formatted = this.formatMessage('error', message, error, context);
         console.error(`${this.colors.red}${formatted}${this.colors.reset}`);
         
-        if (error?.stack) {
+        if (error instanceof Error && error.stack) {
             console.error(`${this.colors.red}Stack trace: ${error.stack}${this.colors.reset}`);
         }
     }
 
     critical(message, error = null, context = null) {
-        const formatted = this.formatMessage('critical', message, error?.message || error, context);
+        const formatted = this.formatMessage('critical', message, error, context);
         console.error(`${this.colors.red}${this.colors.bright}${formatted}${this.colors.reset}`);
         
-        if (error?.stack) {
+        if (error && error.stack) {
             console.error(`${this.colors.red}Stack trace: ${error.stack}${this.colors.reset}`);
         }
     }

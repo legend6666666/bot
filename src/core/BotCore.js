@@ -151,6 +151,11 @@ export class BotCore {
             
             // Login to Discord
             this.logger.info('Connecting to Discord...');
+            
+            if (!process.env.DISCORD_TOKEN) {
+                throw new Error('DISCORD_TOKEN is not set in environment variables');
+            }
+            
             await this.client.login(process.env.DISCORD_TOKEN);
             
             this.isInitialized = true;
@@ -159,7 +164,7 @@ export class BotCore {
             
         } catch (error) {
             this.logger.critical('Bot initialization failed:', error);
-            throw error;
+            throw error; // Re-throw the error for the main process to handle
         }
     }
 
