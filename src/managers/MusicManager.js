@@ -8,7 +8,7 @@ import {
 } from '@discordjs/voice';
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import ytdl from 'ytdl-core';
-import yts from 'youtube-sr';
+import * as yts from 'youtube-sr';
 import playdl from 'play-dl';
 
 export class MusicManager {
@@ -182,7 +182,7 @@ export class MusicManager {
 
     async getPlaylistSongs(playlistUrl) {
         try {
-            const playlist = await yts.getPlaylist(playlistUrl);
+            const playlist = await yts.default.getPlaylist(playlistUrl);
             const songs = [];
 
             for (const video of playlist.videos.slice(0, 50)) { // Limit to 50 songs
@@ -227,7 +227,7 @@ export class MusicManager {
 
     async searchSong(query) {
         try {
-            const results = await yts.search(query, { limit: 1, type: 'video' });
+            const results = await yts.default.search(query, { limit: 1, type: 'video' });
             if (results.length === 0) return null;
 
             const video = results[0];
@@ -250,7 +250,7 @@ export class MusicManager {
     // Method for autocomplete to use
     async searchSongs(query, limit = 10) {
         try {
-            const results = await yts.search(query, { limit, type: 'video' });
+            const results = await yts.default.search(query, { limit, type: 'video' });
             return results.map(video => ({
                 title: video.title,
                 url: video.url,
@@ -327,17 +327,21 @@ export class MusicManager {
                 .addFields(
                     { name: '👤 Artist', value: song.author || 'Unknown', inline: true },
                     { name: '⏱️ Duration', value: song.duration, inline: true },
-                    { name: '👁️ Views', value: song.views || 'Unknown', inline: true },
                     { name: '🔊 Volume', value: `${queue.volume}%`, inline: true },
                     { name: '🔄 Loop', value: queue.loop, inline: true },
-                    { name: '📋 Queue', value: `${queue.songs.length} songs`, inline: true }
+                    { name: '📋 Queue', value: `${queue.songs.length} songs`, inline: true },
+                    { name: '⏸️ Status', value: queue.paused ? 'Paused' : 'Playing', inline: true }
                 )
                 .setThumbnail(song.thumbnail)
                 .setFooter({ text: `Requested by ${song.requestedBy?.username || 'Unknown'}` })
                 .setTimestamp();
 
             const controls = this.createMusicControls(queue);
-            await queue.textChannel.send({ embeds: [embed], components: [controls] });
+            try {
+                await queue.textChannel.send({ embeds: [embed], components: [controls] });
+            } catch (error) {
+                console.error('Error sending now playing message:', error);
+            }
 
             // Handle player events
             player.on(AudioPlayerStatus.Idle, () => {

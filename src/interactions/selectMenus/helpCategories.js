@@ -4,6 +4,8 @@ export default {
     customId: 'help_category',
     async execute(interaction) {
         try {
+            await interaction.deferUpdate();
+            
             const category = interaction.values[0];
             const commands = this.getCommandsByCategory(category, interaction.client);
 
@@ -20,6 +22,8 @@ export default {
 
             if (commandList.length > 0) {
                 embed.addFields({ name: 'Commands', value: commandList.slice(0, 1024) });
+            } else {
+                embed.addFields({ name: 'Commands', value: 'No commands found in this category.' });
             }
 
             // Create new select menu to allow category switching
@@ -43,27 +47,11 @@ export default {
 
             const row = new ActionRowBuilder().addComponents(selectMenu);
 
-            try {
-                await interaction.update({ embeds: [embed], components: [row] });
-            } catch (error) {
-                console.error('Error updating help category interaction:', error);
-                // If the interaction has expired, try to send a new message
-                if (error.code === 40060) { // Interaction has already been acknowledged
-                    try {
-                        await interaction.followUp({ 
-                            embeds: [embed], 
-                            components: [row],
-                            ephemeral: true
-                        });
-                    } catch (followUpError) {
-                        console.error('Failed to follow up with help category:', followUpError);
-                    }
-                }
-            }
+            await interaction.editReply({ embeds: [embed], components: [row] });
         } catch (error) {
             console.error('Help category selection error:', error);
             try {
-                await interaction.reply({
+                await interaction.followUp({
                     content: '❌ An error occurred while displaying the help menu.',
                     ephemeral: true
                 });
