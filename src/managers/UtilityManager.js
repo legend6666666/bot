@@ -270,6 +270,161 @@ export class UtilityManager {
         }
     }
 
+    // Poll System
+    async createPoll(question, options, duration = 60000) {
+        try {
+            const pollId = this.generateId();
+            const endTime = Date.now() + duration;
+
+            const poll = {
+                id: pollId,
+                question,
+                options: options.map(opt => ({ text: opt, votes: 0 })),
+                voters: new Set(),
+                endTime,
+                active: true
+            };
+
+            this.polls.set(pollId, poll);
+
+            const embed = new EmbedBuilder()
+                .setColor('#0099FF')
+                .setTitle('📊 Poll Created')
+                .setDescription(question)
+                .addFields(
+                    ...poll.options.map((opt, index) => ({
+                        name: `${index + 1}. ${opt.text}`,
+                        value: `0 votes`,
+                        inline: true
+                    }))
+                )
+                .setFooter({ text: `Poll ends in ${this.formatDuration(duration)}` })
+                .setTimestamp();
+
+            // Auto-end poll
+            setTimeout(() => {
+                this.endPoll(pollId);
+            }, duration);
+
+            return { success: true, embed, pollId };
+
+        } catch (error) {
+            this.logger.error('Error creating poll:', error);
+            return { success: false, error: 'Failed to create poll' };
+        }
+    }
+
+    async votePoll(pollId, userId, optionIndex) {
+        try {
+            const poll = this.polls.get(pollId);
+            if (!poll || !poll.active) {
+                return { success: false, error: 'Poll not found or has ended' };
+            }
+
+            if (poll.voters.has(userId)) {
+                return { success: false, error: 'You have already voted in this poll' };
+            }
+
+            if (optionIndex < 0 || optionIndex >= poll.options.length) {
+                return { success: false, error: 'Invalid option selected' };
+            }
+
+            poll.options[optionIndex].votes++;
+            poll.voters.add(userId);
+
+            return { success: true, poll };
+
+        } catch (error) {
+            this.logger.error('Error voting in poll:', error);
+            return { success: false, error: 'Failed to vote in poll' };
+        }
+    }
+
+    endPoll(pollId) {
+        const poll = this.polls.get(pollId);
+        if (poll) {
+            poll.active = false;
+            // In a real implementation, you would update the poll message
+            this.logger.debug(`Poll ended: ${poll.question}`);
+        }
+    }
+
+    // URL Shortener
+    async shortenUrl(originalUrl, customAlias = null) {
+        try {
+            // Basic URL validation
+            try {
+                new URL(originalUrl);
+            } catch {
+                return { success: false, error: 'Invalid URL provided' };
+            }
+
+            const shortId = customAlias || this.generateShortId();
+            
+            if (this.urlShortener.has(shortId)) {
+                return { success: false, error: 'Alias already exists' };
+            }
+
+            const shortUrl = `https://bot.ly/${shortId}`;
+            
+            this.urlShortener.set(shortId, {
+                original: originalUrl,
+                short: shortUrl,
+                clicks: 0,
+                created: Date.now()
+            });
+
+            const embed = new EmbedBuilder()
+                .setColor('#00FF00')
+                .setTitle('🔗 URL Shortened')
+                .addFields(
+                    { name: 'Original URL', value: originalUrl, inline: false },
+                    { name: 'Short URL', value: shortUrl, inline: false },
+                    { name: 'Clicks', value: '0', inline: true }
+                )
+                .setTimestamp();
+
+            return { success: true, embed, shortUrl };
+
+        } catch (error) {
+            this.logger.error('Error shortening URL:', error);
+            return { success: false, error: 'Failed to shorten URL' };
+        }
+    }
+
+    // Translation (Mock implementation)
+    async translateText(text, targetLang, sourceLang = 'auto') {
+        try {
+            // This is a mock implementation
+            // In a real bot, you would use Google Translate API or similar
+            
+            const mockTranslations = {
+                'hello': { es: 'hola', fr: 'bonjour', de: 'hallo', it: 'ciao' },
+                'goodbye': { es: 'adiós', fr: 'au revoir', de: 'auf wiedersehen', it: 'ciao' },
+                'thank you': { es: 'gracias', fr: 'merci', de: 'danke', it: 'grazie' }
+            };
+
+            const lowerText = text.toLowerCase();
+            const translation = mockTranslations[lowerText]?.[targetLang] || `[${targetLang.toUpperCase()}] ${text}`;
+
+            const embed = new EmbedBuilder()
+                .setColor('#0099FF')
+                .setTitle('🌐 Translation')
+                .addFields(
+                    { name: 'Original', value: text, inline: false },
+                    { name: 'Translation', value: translation, inline: false },
+                    { name: 'Language', value: `${sourceLang} → ${targetLang}`, inline: true }
+                )
+                .setTimestamp();
+
+            return { success: true, embed, translation };
+
+        } catch (error) {
+            this.logger.error('Error translating text:', error);
+            return { success: false, error: 'Failed to translate text' };
+        }
+    }
+
     // Utility Methods
     parseTime(timeString) {
         const regex = /(\d+)([smhdw])/g;
@@ -312,6 +467,10 @@ export class UtilityManager {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
     }
 
+    generateShortId() {
+        return Math.random().toString(36).substr(2, 8);
+    }
+
     // Reminder Check Loop
     startReminderCheck() {
         setInterval(() => {
@@ -349,5 +508,24 @@ export class UtilityManager {
             shortenedUrls: this.urlShortener.size
         };
     }
+
+    // Cleanup
+    cleanup() {
+        const now = Date.now();
+        const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+
+        // Clean up old reminders
+        for (const [id, reminder] of this.reminders.entries()) {
+            if (now - reminder.created > maxAge) {
+                this.reminders.delete(id);
+            }
+        }
+
+        // Clean up old polls
+        for (const [id, poll] of this.polls.entries()) {
+            if (now > poll.endTime + maxAge) {
+                this.polls.delete(id);
+            }
+        }
+    }
 }
-</parameter>
