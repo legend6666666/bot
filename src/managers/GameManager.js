@@ -1,4 +1,3 @@
-import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { Logger } from '../utils/Logger.js';
 
 export class GameManager {
@@ -6,652 +5,411 @@ export class GameManager {
         this.logger = new Logger();
         this.database = database;
         this.activeGames = new Map();
-        this.gameStats = new Map();
         this.tournaments = new Map();
-        this.leaderboards = new Map();
-        
-        this.initializeGames();
     }
 
     async initialize() {
-        this.logger.info('Game manager initialized');
-        await this.loadGameStats();
+        this.logger.info('Game Manager initialized');
     }
 
-    initializeGames() {
-        this.games = {
-            trivia: {
-                name: 'Trivia',
-                description: 'Test your knowledge',
-                minPlayers: 1,
-                maxPlayers: 10,
-                duration: 30000 // 30 seconds per question
-            },
-            rps: {
-                name: 'Rock Paper Scissors',
-                description: 'Classic hand game',
-                minPlayers: 1,
-                maxPlayers: 2,
-                duration: 15000 // 15 seconds to choose
-            },
-            slots: {
-                name: 'Slot Machine',
-                description: 'Try your luck',
-                minPlayers: 1,
-                maxPlayers: 1,
-                duration: 5000 // 5 seconds
-            },
-            blackjack: {
-                name: 'Blackjack',
-                description: 'Beat the dealer',
-                minPlayers: 1,
-                maxPlayers: 6,
-                duration: 30000 // 30 seconds per turn
-            },
-            hangman: {
-                name: 'Hangman',
-                description: 'Guess the word',
-                minPlayers: 1,
-                maxPlayers: 10,
-                duration: 60000 // 60 seconds
-            },
-            duel: {
-                name: 'Duel',
-                description: 'Battle another player',
-                minPlayers: 2,
-                maxPlayers: 2,
-                duration: 45000 // 45 seconds per turn
-            }
-        };
-
-        this.triviaCategories = [
-            'general', 'science', 'history', 'geography', 'sports', 
-            'entertainment', 'art', 'literature', 'music', 'movies'
-        ];
-
-        this.triviaQuestions = {
-            general: [
-                {
-                    question: "What is the capital of France?",
-                    answers: ["London", "Berlin", "Paris", "Madrid"],
-                    correct: 2,
-                    difficulty: "easy"
-                },
-                {
-                    question: "Which planet is known as the Red Planet?",
-                    answers: ["Venus", "Mars", "Jupiter", "Saturn"],
-                    correct: 1,
-                    difficulty: "easy"
-                }
-            ],
-            science: [
-                {
-                    question: "What is the chemical symbol for gold?",
-                    answers: ["Go", "Gd", "Au", "Ag"],
-                    correct: 2,
-                    difficulty: "medium"
-                },
-                {
-                    question: "What is the speed of light in vacuum?",
-                    answers: ["299,792,458 m/s", "300,000,000 m/s", "299,000,000 m/s", "298,792,458 m/s"],
-                    correct: 0,
-                    difficulty: "hard"
-                }
-            ]
-        };
-    }
-
-    async loadGameStats() {
+    async startTrivia(userId, guildId, category = 'general', difficulty = 'medium') {
         try {
-            if (this.database && this.database.db) {
-                const stats = await this.database.db.all('SELECT * FROM game_stats');
-                stats.forEach(stat => {
-                    const key = `${stat.user_id}_${stat.game}`;
-                    this.gameStats.set(key, stat);
-                });
-            }
-        } catch (error) {
-            this.logger.error('Error loading game stats:', error);
-        }
-    }
-
-    // Trivia Game
-    async startTrivia(interaction, category = 'general', difficulty = 'easy') {
-        try {
-            const gameId = this.generateGameId();
-            const questions = this.triviaQuestions[category] || this.triviaQuestions.general;
+            const questions = this.getTriviaQuestions(category, difficulty);
             const question = questions[Math.floor(Math.random() * questions.length)];
 
-            const game = {
-                id: gameId,
+            const gameId = `trivia_${userId}_${Date.now()}`;
+            this.activeGames.set(gameId, {
                 type: 'trivia',
-                players: [interaction.user.id],
+                userId,
+                guildId,
                 question,
-                category,
-                difficulty,
                 startTime: Date.now(),
-                answers: new Map(),
-                status: 'active'
+                answered: false
+            });
+
+            return {
+                success: true,
+                gameId,
+                question: question.question,
+                options: question.options,
+                category: question.category,
+                difficulty: question.difficulty
             };
 
-            this.activeGames.set(gameId, game);
-
-            const embed = new EmbedBuilder()
-                .setColor('#9932CC')
-                .setTitle('🧠 Trivia Challenge')
-                .setDescription(`**Category:** ${category}\n**Difficulty:** ${difficulty}\n\n**Question:** ${question.question}`)
-                .addFields({ name: 'Time Limit', value: '30 seconds', inline: true })
-                .setFooter({ text: `Game ID: ${gameId}` })
-                .setTimestamp();
-
-            const buttons = new ActionRowBuilder()
-                .addComponents(
-                    ...question.answers.map((answer, index) => 
-                        new ButtonBuilder()
-                            .setCustomId(`trivia_answer_${gameId}_${index}`)
-                            .setLabel(`${index + 1}. ${answer}`)
-                            .setStyle(ButtonStyle.Primary)
-                    )
-                );
-
-            await interaction.reply({ embeds: [embed], components: [buttons] });
-
-            // Set timeout for question
-            setTimeout(() => {
-                this.endTrivia(gameId, interaction);
-            }, 30000);
-
-            return { success: true, gameId };
-
         } catch (error) {
-            this.logger.error('Error starting trivia:', error);
-            return { success: false, error: 'Failed to start trivia game' };
+            this.logger.error('Trivia start error:', error);
+            return {
+                success: false,
+                error: 'Failed to start trivia game'
+            };
         }
     }
 
-    async answerTrivia(interaction, gameId, answerIndex) {
+    async answerTrivia(gameId, answerIndex) {
         try {
             const game = this.activeGames.get(gameId);
-            if (!game || game.type !== 'trivia') {
-                return { success: false, error: 'Game not found' };
+            if (!game || game.type !== 'trivia' || game.answered) {
+                return {
+                    success: false,
+                    error: 'Game not found or already answered'
+                };
             }
 
-            if (game.status !== 'active') {
-                return { success: false, error: 'Game is no longer active' };
-            }
-
-            const userId = interaction.user.id;
-            const isCorrect = answerIndex === game.question.correct;
+            const correct = answerIndex === game.question.correct;
+            const timeTaken = Date.now() - game.startTime;
             
-            game.answers.set(userId, { answer: answerIndex, correct: isCorrect });
-
-            const embed = new EmbedBuilder()
-                .setColor(isCorrect ? '#00FF00' : '#FF0000')
-                .setTitle(isCorrect ? '✅ Correct!' : '❌ Wrong!')
-                .setDescription(isCorrect ? 
-                    'Great job! You got it right!' : 
-                    `The correct answer was: **${game.question.answers[game.question.correct]}**`)
-                .setTimestamp();
-
-            if (isCorrect) {
-                // Award points and coins
-                await this.updateGameStats(userId, 'trivia', true);
-                embed.addFields({ name: 'Rewards', value: '+50 XP, +100 coins' });
-            } else {
-                await this.updateGameStats(userId, 'trivia', false);
-            }
-
-            game.status = 'completed';
-            await interaction.update({ embeds: [embed], components: [] });
-
-            return { success: true, correct: isCorrect };
-
-        } catch (error) {
-            this.logger.error('Error answering trivia:', error);
-            return { success: false, error: 'Failed to process answer' };
-        }
-    }
-
-    async endTrivia(gameId, interaction) {
-        try {
-            const game = this.activeGames.get(gameId);
-            if (!game || game.status !== 'active') return;
-
-            game.status = 'expired';
-
-            const embed = new EmbedBuilder()
-                .setColor('#FF0000')
-                .setTitle('⏰ Time\'s Up!')
-                .setDescription(`The correct answer was: **${game.question.answers[game.question.correct]}**`)
-                .setTimestamp();
-
-            await interaction.editReply({ embeds: [embed], components: [] });
+            game.answered = true;
             this.activeGames.delete(gameId);
 
+            // Award points for correct answers
+            if (correct) {
+                const points = Math.max(100 - Math.floor(timeTaken / 1000) * 5, 10);
+                await this.addGameStats(game.userId, 'trivia', correct ? 'win' : 'loss', points);
+            }
+
+            return {
+                success: true,
+                correct,
+                correctAnswer: game.question.options[game.question.correct],
+                timeTaken,
+                points: correct ? Math.max(100 - Math.floor(timeTaken / 1000) * 5, 10) : 0
+            };
+
         } catch (error) {
-            this.logger.error('Error ending trivia:', error);
+            this.logger.error('Trivia answer error:', error);
+            return {
+                success: false,
+                error: 'Failed to process answer'
+            };
         }
     }
 
-    // Rock Paper Scissors
-    async startRPS(interaction, opponent = null) {
+    async playRockPaperScissors(userId, choice, opponentId = null) {
         try {
-            const gameId = this.generateGameId();
             const choices = ['rock', 'paper', 'scissors'];
-            const emojis = { rock: '🪨', paper: '📄', scissors: '✂️' };
-
-            if (!opponent) {
-                // Play against bot
-                const botChoice = choices[Math.floor(Math.random() * choices.length)];
-                
-                const embed = new EmbedBuilder()
-                    .setColor('#9932CC')
-                    .setTitle('🎮 Rock Paper Scissors')
-                    .setDescription('Choose your move!')
-                    .setTimestamp();
-
-                const buttons = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`rps_choice_${gameId}_rock`)
-                            .setLabel('Rock')
-                            .setStyle(ButtonStyle.Secondary)
-                            .setEmoji('🪨'),
-                        new ButtonBuilder()
-                            .setCustomId(`rps_choice_${gameId}_paper`)
-                            .setLabel('Paper')
-                            .setStyle(ButtonStyle.Secondary)
-                            .setEmoji('📄'),
-                        new ButtonBuilder()
-                            .setCustomId(`rps_choice_${gameId}_scissors`)
-                            .setLabel('Scissors')
-                            .setStyle(ButtonStyle.Secondary)
-                            .setEmoji('✂️')
-                    );
-
-                const game = {
-                    id: gameId,
-                    type: 'rps',
-                    players: [interaction.user.id],
-                    botChoice,
-                    status: 'waiting_choice'
-                };
-
-                this.activeGames.set(gameId, game);
-                await interaction.reply({ embeds: [embed], components: [buttons] });
-
-                return { success: true, gameId };
-            }
-
-            return { success: false, error: 'Multiplayer RPS not implemented yet' };
-
-        } catch (error) {
-            this.logger.error('Error starting RPS:', error);
-            return { success: false, error: 'Failed to start RPS game' };
-        }
-    }
-
-    async playRPS(interaction, gameId, userChoice) {
-        try {
-            const game = this.activeGames.get(gameId);
-            if (!game || game.type !== 'rps') {
-                return { success: false, error: 'Game not found' };
-            }
-
-            const botChoice = game.botChoice;
-            const emojis = { rock: '🪨', paper: '📄', scissors: '✂️' };
+            const botChoice = choices[Math.floor(Math.random() * choices.length)];
             
             let result;
-            if (userChoice === botChoice) {
+            if (choice === botChoice) {
                 result = 'tie';
             } else if (
-                (userChoice === 'rock' && botChoice === 'scissors') ||
-                (userChoice === 'paper' && botChoice === 'rock') ||
-                (userChoice === 'scissors' && botChoice === 'paper')
+                (choice === 'rock' && botChoice === 'scissors') ||
+                (choice === 'paper' && botChoice === 'rock') ||
+                (choice === 'scissors' && botChoice === 'paper')
             ) {
                 result = 'win';
             } else {
                 result = 'lose';
             }
 
-            const embed = new EmbedBuilder()
-                .setColor(result === 'win' ? '#00FF00' : result === 'lose' ? '#FF0000' : '#FFFF00')
-                .setTitle('🎮 Rock Paper Scissors')
-                .setDescription(`You chose ${emojis[userChoice]} **${userChoice}**\nI chose ${emojis[botChoice]} **${botChoice}**`)
-                .addFields({ 
-                    name: 'Result', 
-                    value: result === 'win' ? '🎉 You Win!' : result === 'lose' ? '😢 You Lose!' : '🤝 It\'s a Tie!' 
-                })
-                .setTimestamp();
+            await this.addGameStats(userId, 'rps', result, result === 'win' ? 10 : 0);
 
-            if (result === 'win') {
-                await this.updateGameStats(interaction.user.id, 'rps', true);
-                embed.addFields({ name: 'Reward', value: '+25 coins' });
-            } else if (result === 'lose') {
-                await this.updateGameStats(interaction.user.id, 'rps', false);
-            }
-
-            const playAgainButton = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('game_control_start_rps')
-                        .setLabel('Play Again')
-                        .setStyle(ButtonStyle.Primary)
-                        .setEmoji('🔄')
-                );
-
-            await interaction.update({ embeds: [embed], components: [playAgainButton] });
-            this.activeGames.delete(gameId);
-
-            return { success: true, result };
+            return {
+                success: true,
+                userChoice: choice,
+                botChoice,
+                result,
+                points: result === 'win' ? 10 : 0
+            };
 
         } catch (error) {
-            this.logger.error('Error playing RPS:', error);
-            return { success: false, error: 'Failed to process RPS move' };
+            this.logger.error('RPS game error:', error);
+            return {
+                success: false,
+                error: 'Failed to play Rock Paper Scissors'
+            };
         }
     }
 
-    // Slot Machine
-    async playSlots(interaction, bet = 100) {
+    async startNumberGuess(userId, guildId, min = 1, max = 100) {
         try {
-            const symbols = ['🍒', '🍋', '🍊', '🍇', '⭐', '💎'];
-            const slot1 = symbols[Math.floor(Math.random() * symbols.length)];
-            const slot2 = symbols[Math.floor(Math.random() * symbols.length)];
-            const slot3 = symbols[Math.floor(Math.random() * symbols.length)];
-
-            let won = false;
-            let multiplier = 0;
-            let winnings = 0;
-
-            if (slot1 === slot2 && slot2 === slot3) {
-                won = true;
-                multiplier = slot1 === '💎' ? 10 : slot1 === '⭐' ? 5 : 3;
-                winnings = bet * multiplier;
-            }
-
-            const embed = new EmbedBuilder()
-                .setColor(won ? '#00FF00' : '#FF0000')
-                .setTitle('🎰 Slot Machine')
-                .setDescription(`${slot1} ${slot2} ${slot3}`)
-                .addFields(
-                    { name: 'Bet', value: `${bet} coins`, inline: true },
-                    { name: 'Result', value: won ? `JACKPOT! x${multiplier}` : 'No match', inline: true },
-                    { name: 'Winnings', value: won ? `${winnings} coins` : '0 coins', inline: true }
-                )
-                .setTimestamp();
-
-            await this.updateGameStats(interaction.user.id, 'slots', won);
-
-            await interaction.reply({ embeds: [embed] });
-
-            return { success: true, won, winnings };
-
-        } catch (error) {
-            this.logger.error('Error playing slots:', error);
-            return { success: false, error: 'Failed to play slots' };
-        }
-    }
-
-    // Number Guessing Game
-    async startNumberGuess(interaction, min = 1, max = 100) {
-        try {
-            const gameId = this.generateGameId();
             const targetNumber = Math.floor(Math.random() * (max - min + 1)) + min;
-
-            const game = {
-                id: gameId,
+            
+            const gameId = `guess_${userId}_${Date.now()}`;
+            this.activeGames.set(gameId, {
                 type: 'guess',
-                players: [interaction.user.id],
+                userId,
+                guildId,
                 targetNumber,
                 min,
                 max,
                 attempts: 0,
                 maxAttempts: Math.ceil(Math.log2(max - min + 1)) + 2,
-                status: 'active',
                 startTime: Date.now()
-            };
-
-            this.activeGames.set(gameId, game);
-
-            const embed = new EmbedBuilder()
-                .setColor('#9932CC')
-                .setTitle('🎯 Number Guessing Game')
-                .setDescription(`I'm thinking of a number between **${min}** and **${max}**!\nYou have **${game.maxAttempts}** attempts to guess it.`)
-                .addFields(
-                    { name: 'Range', value: `${min} - ${max}`, inline: true },
-                    { name: 'Attempts Left', value: game.maxAttempts.toString(), inline: true }
-                )
-                .setFooter({ text: 'Type your guess in chat!' })
-                .setTimestamp();
-
-            await interaction.reply({ embeds: [embed] });
-
-            return { success: true, gameId };
-
-        } catch (error) {
-            this.logger.error('Error starting number guess:', error);
-            return { success: false, error: 'Failed to start guessing game' };
-        }
-    }
-
-    // Duel System
-    async startDuel(interaction, opponent) {
-        try {
-            const gameId = this.generateGameId();
-            
-            const player1Stats = await this.getPlayerStats(interaction.user.id);
-            const player2Stats = await this.getPlayerStats(opponent.id);
-
-            const game = {
-                id: gameId,
-                type: 'duel',
-                players: [interaction.user.id, opponent.id],
-                player1: {
-                    id: interaction.user.id,
-                    hp: 100,
-                    attack: player1Stats.attack || 20,
-                    defense: player1Stats.defense || 10
-                },
-                player2: {
-                    id: opponent.id,
-                    hp: 100,
-                    attack: player2Stats.attack || 20,
-                    defense: player2Stats.defense || 10
-                },
-                currentTurn: interaction.user.id,
-                status: 'active',
-                round: 1
-            };
-
-            this.activeGames.set(gameId, game);
-
-            const embed = new EmbedBuilder()
-                .setColor('#FF4500')
-                .setTitle('⚔️ Duel Started!')
-                .setDescription(`${interaction.user} vs ${opponent}`)
-                .addFields(
-                    { name: `${interaction.user.username}`, value: `HP: ${game.player1.hp}/100\nATK: ${game.player1.attack}\nDEF: ${game.player1.defense}`, inline: true },
-                    { name: `${opponent.username}`, value: `HP: ${game.player2.hp}/100\nATK: ${game.player2.attack}\nDEF: ${game.player2.defense}`, inline: true },
-                    { name: 'Current Turn', value: `${interaction.user}`, inline: false }
-                )
-                .setTimestamp();
-
-            const buttons = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`duel_attack_${gameId}`)
-                        .setLabel('Attack')
-                        .setStyle(ButtonStyle.Danger)
-                        .setEmoji('⚔️'),
-                    new ButtonBuilder()
-                        .setCustomId(`duel_defend_${gameId}`)
-                        .setLabel('Defend')
-                        .setStyle(ButtonStyle.Secondary)
-                        .setEmoji('🛡️'),
-                    new ButtonBuilder()
-                        .setCustomId(`duel_special_${gameId}`)
-                        .setLabel('Special')
-                        .setStyle(ButtonStyle.Primary)
-                        .setEmoji('✨')
-                );
-
-            await interaction.reply({ embeds: [embed], components: [buttons] });
-
-            return { success: true, gameId };
-
-        } catch (error) {
-            this.logger.error('Error starting duel:', error);
-            return { success: false, error: 'Failed to start duel' };
-        }
-    }
-
-    // Game Statistics
-    async updateGameStats(userId, game, won) {
-        try {
-            const key = `${userId}_${game}`;
-            let stats = this.gameStats.get(key) || {
-                user_id: userId,
-                game,
-                wins: 0,
-                losses: 0,
-                draws: 0,
-                total_played: 0,
-                best_score: 0,
-                last_played: new Date()
-            };
-
-            stats.total_played++;
-            if (won === true) {
-                stats.wins++;
-            } else if (won === false) {
-                stats.losses++;
-            } else {
-                stats.draws++;
-            }
-            stats.last_played = new Date();
-
-            this.gameStats.set(key, stats);
-
-            // Save to database
-            if (this.database && this.database.db) {
-                await this.database.db.run(`
-                    INSERT OR REPLACE INTO game_stats 
-                    (user_id, game, wins, losses, draws, total_played, best_score, last_played)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `, [userId, game, stats.wins, stats.losses, stats.draws, stats.total_played, stats.best_score, stats.last_played]);
-            }
-
-        } catch (error) {
-            this.logger.error('Error updating game stats:', error);
-        }
-    }
-
-    async getPlayerStats(userId) {
-        const key = `${userId}_duel`;
-        const stats = this.gameStats.get(key);
-        
-        return {
-            attack: 20 + (stats?.wins || 0) * 2,
-            defense: 10 + (stats?.wins || 0),
-            level: Math.floor((stats?.total_played || 0) / 10) + 1
-        };
-    }
-
-    async getGameLeaderboard(game, limit = 10) {
-        try {
-            const leaderboard = [];
-            
-            for (const [key, stats] of this.gameStats.entries()) {
-                if (stats.game === game) {
-                    leaderboard.push(stats);
-                }
-            }
-
-            leaderboard.sort((a, b) => {
-                const scoreA = a.wins * 3 + a.draws;
-                const scoreB = b.wins * 3 + b.draws;
-                return scoreB - scoreA;
             });
 
-            return leaderboard.slice(0, limit);
-
-        } catch (error) {
-            this.logger.error('Error getting game leaderboard:', error);
-            return [];
-        }
-    }
-
-    // Tournament System
-    async createTournament(guildId, game, name, maxPlayers = 8) {
-        try {
-            const tournamentId = this.generateGameId();
-            
-            const tournament = {
-                id: tournamentId,
-                guildId,
-                game,
-                name,
-                maxPlayers,
-                players: [],
-                status: 'registration',
-                rounds: [],
-                winner: null,
-                createdAt: new Date()
+            return {
+                success: true,
+                gameId,
+                min,
+                max,
+                maxAttempts: Math.ceil(Math.log2(max - min + 1)) + 2
             };
 
-            this.tournaments.set(tournamentId, tournament);
+        } catch (error) {
+            this.logger.error('Number guess start error:', error);
+            return {
+                success: false,
+                error: 'Failed to start number guessing game'
+            };
+        }
+    }
 
-            return { success: true, tournament };
+    async guessNumber(gameId, guess) {
+        try {
+            const game = this.activeGames.get(gameId);
+            if (!game || game.type !== 'guess') {
+                return {
+                    success: false,
+                    error: 'Game not found'
+                };
+            }
+
+            game.attempts++;
+            
+            if (guess === game.targetNumber) {
+                const points = Math.max(50 - game.attempts * 5, 10);
+                await this.addGameStats(game.userId, 'guess', 'win', points);
+                this.activeGames.delete(gameId);
+                
+                return {
+                    success: true,
+                    result: 'correct',
+                    attempts: game.attempts,
+                    points
+                };
+            } else if (game.attempts >= game.maxAttempts) {
+                await this.addGameStats(game.userId, 'guess', 'loss', 0);
+                this.activeGames.delete(gameId);
+                
+                return {
+                    success: true,
+                    result: 'failed',
+                    targetNumber: game.targetNumber,
+                    attempts: game.attempts
+                };
+            } else {
+                const hint = guess < game.targetNumber ? 'higher' : 'lower';
+                return {
+                    success: true,
+                    result: 'continue',
+                    hint,
+                    attempts: game.attempts,
+                    remaining: game.maxAttempts - game.attempts
+                };
+            }
 
         } catch (error) {
-            this.logger.error('Error creating tournament:', error);
-            return { success: false, error: 'Failed to create tournament' };
+            this.logger.error('Number guess error:', error);
+            return {
+                success: false,
+                error: 'Failed to process guess'
+            };
         }
     }
 
-    // Utility Methods
-    generateGameId() {
-        return Date.now().toString(36) + Math.random().toString(36).substr(2);
-    }
+    async playSlots(userId, bet = 0) {
+        try {
+            const symbols = ['🍒', '🍋', '🍊', '🍇', '⭐', '💎'];
+            const reels = [
+                symbols[Math.floor(Math.random() * symbols.length)],
+                symbols[Math.floor(Math.random() * symbols.length)],
+                symbols[Math.floor(Math.random() * symbols.length)]
+            ];
 
-    getActiveGame(gameId) {
-        return this.activeGames.get(gameId);
-    }
+            let multiplier = 0;
+            let result = 'lose';
 
-    endGame(gameId) {
-        this.activeGames.delete(gameId);
-    }
-
-    getUserGameStats(userId, game) {
-        const key = `${userId}_${game}`;
-        return this.gameStats.get(key);
-    }
-
-    getAllUserStats(userId) {
-        const userStats = [];
-        for (const [key, stats] of this.gameStats.entries()) {
-            if (stats.user_id === userId) {
-                userStats.push(stats);
+            // Check for wins
+            if (reels[0] === reels[1] && reels[1] === reels[2]) {
+                result = 'jackpot';
+                multiplier = reels[0] === '💎' ? 10 : reels[0] === '⭐' ? 5 : 3;
+            } else if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]) {
+                result = 'small_win';
+                multiplier = 1.5;
             }
+
+            const winnings = Math.floor(bet * multiplier);
+            const points = result === 'jackpot' ? 100 : result === 'small_win' ? 25 : 0;
+
+            await this.addGameStats(userId, 'slots', result === 'lose' ? 'loss' : 'win', points);
+
+            return {
+                success: true,
+                reels,
+                result,
+                multiplier,
+                winnings,
+                points
+            };
+
+        } catch (error) {
+            this.logger.error('Slots game error:', error);
+            return {
+                success: false,
+                error: 'Failed to play slots'
+            };
         }
-        return userStats;
     }
 
-    getAvailableGames() {
-        return Object.keys(this.games);
+    async getGameStats(userId, game = null) {
+        try {
+            if (!this.database || !this.database.db) {
+                return {
+                    success: false,
+                    error: 'Database not available'
+                };
+            }
+
+            let query = 'SELECT * FROM game_stats WHERE user_id = ?';
+            let params = [userId];
+
+            if (game) {
+                query += ' AND game = ?';
+                params.push(game);
+            }
+
+            const stats = await this.database.db.all(query, params);
+            
+            return {
+                success: true,
+                stats
+            };
+
+        } catch (error) {
+            this.logger.error('Get game stats error:', error);
+            return {
+                success: false,
+                error: 'Failed to get game stats'
+            };
+        }
     }
 
-    getGameInfo(gameName) {
-        return this.games[gameName];
+    async getLeaderboard(game, limit = 10) {
+        try {
+            if (!this.database || !this.database.db) {
+                return {
+                    success: false,
+                    error: 'Database not available'
+                };
+            }
+
+            const leaderboard = await this.database.db.all(`
+                SELECT user_id, game, wins, losses, score, best_score, total_played
+                FROM game_stats 
+                WHERE game = ? 
+                ORDER BY score DESC 
+                LIMIT ?
+            `, [game, limit]);
+
+            return {
+                success: true,
+                leaderboard
+            };
+
+        } catch (error) {
+            this.logger.error('Get leaderboard error:', error);
+            return {
+                success: false,
+                error: 'Failed to get leaderboard'
+            };
+        }
     }
 
-    // Cleanup old games
+    async addGameStats(userId, game, result, score = 0) {
+        try {
+            if (!this.database || !this.database.db) {
+                return;
+            }
+
+            // Get existing stats
+            const existing = await this.database.db.get(
+                'SELECT * FROM game_stats WHERE user_id = ? AND game = ?',
+                [userId, game]
+            );
+
+            if (existing) {
+                // Update existing stats
+                const wins = existing.wins + (result === 'win' ? 1 : 0);
+                const losses = existing.losses + (result === 'loss' ? 1 : 0);
+                const draws = existing.draws + (result === 'tie' ? 1 : 0);
+                const newScore = existing.score + score;
+                const bestScore = Math.max(existing.best_score, score);
+                const totalPlayed = existing.total_played + 1;
+
+                await this.database.db.run(`
+                    UPDATE game_stats 
+                    SET wins = ?, losses = ?, draws = ?, score = ?, best_score = ?, total_played = ?, last_played = CURRENT_TIMESTAMP
+                    WHERE user_id = ? AND game = ?
+                `, [wins, losses, draws, newScore, bestScore, totalPlayed, userId, game]);
+            } else {
+                // Create new stats
+                const wins = result === 'win' ? 1 : 0;
+                const losses = result === 'loss' ? 1 : 0;
+                const draws = result === 'tie' ? 1 : 0;
+
+                await this.database.db.run(`
+                    INSERT INTO game_stats (user_id, game, wins, losses, draws, score, best_score, total_played)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                `, [userId, game, wins, losses, draws, score, score]);
+            }
+
+        } catch (error) {
+            this.logger.error('Add game stats error:', error);
+        }
+    }
+
+    getTriviaQuestions(category = 'general', difficulty = 'medium') {
+        const questions = [
+            {
+                category: 'Science',
+                difficulty: 'easy',
+                question: 'What is the chemical symbol for water?',
+                options: ['H2O', 'CO2', 'NaCl', 'O2'],
+                correct: 0
+            },
+            {
+                category: 'History',
+                difficulty: 'medium',
+                question: 'In which year did World War II end?',
+                options: ['1944', '1945', '1946', '1947'],
+                correct: 1
+            },
+            {
+                category: 'Geography',
+                difficulty: 'easy',
+                question: 'What is the capital of France?',
+                options: ['London', 'Berlin', 'Paris', 'Madrid'],
+                correct: 2
+            },
+            {
+                category: 'Science',
+                difficulty: 'hard',
+                question: 'What is the speed of light in vacuum?',
+                options: ['299,792,458 m/s', '300,000,000 m/s', '299,000,000 m/s', '298,792,458 m/s'],
+                correct: 0
+            },
+            {
+                category: 'General',
+                difficulty: 'medium',
+                question: 'Which planet is known as the Red Planet?',
+                options: ['Venus', 'Mars', 'Jupiter', 'Saturn'],
+                correct: 1
+            }
+        ];
+
+        return questions.filter(q => 
+            (category === 'general' || q.category.toLowerCase() === category.toLowerCase()) &&
+            q.difficulty === difficulty
+        );
+    }
+
     cleanup() {
-        const now = Date.now();
-        const maxAge = 30 * 60 * 1000; // 30 minutes
-
+        // Clean up old games (older than 1 hour)
+        const cutoff = Date.now() - (60 * 60 * 1000);
+        
         for (const [gameId, game] of this.activeGames.entries()) {
-            if (now - game.startTime > maxAge) {
+            if (game.startTime < cutoff) {
                 this.activeGames.delete(gameId);
             }
         }

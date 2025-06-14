@@ -8,6 +8,34 @@ import chalk from 'chalk';
 // Core Managers
 import { Database } from '../database/Database.js';
 import { Logger } from '../utils/Logger.js';
+import { ConfigManager } from '../managers/ConfigManager.js';
+import { PermissionManager } from '../managers/PermissionManager.js';
+import { CacheManager } from '../managers/CacheManager.js';
+import { SecurityManager } from '../managers/SecurityManager.js';
+
+// Feature Managers
+import { MusicManager } from '../managers/MusicManager.js';
+import { EconomyManager } from '../managers/EconomyManager.js';
+import { ModerationManager } from '../managers/ModerationManager.js';
+import { LevelingManager } from '../managers/LevelingManager.js';
+import { TicketManager } from '../managers/TicketManager.js';
+import { AIManager } from '../managers/AIManager.js';
+import { GameManager } from '../managers/GameManager.js';
+import { SocialManager } from '../managers/SocialManager.js';
+import { UtilityManager } from '../managers/UtilityManager.js';
+import { AnimeManager } from '../managers/AnimeManager.js';
+import { MemeManager } from '../managers/MemeManager.js';
+
+// API & Web
+import { WebServer } from '../web/WebServer.js';
+import { APIManager } from '../api/APIManager.js';
+import { WebhookManager } from '../managers/WebhookManager.js';
+import { NotificationManager } from '../managers/NotificationManager.js';
+
+// Analytics & Monitoring
+import { AnalyticsManager } from '../managers/AnalyticsManager.js';
+import { MonitoringManager } from '../managers/MonitoringManager.js';
+import { PerformanceManager } from '../managers/PerformanceManager.js';
 
 dotenv.config();
 
@@ -21,94 +49,155 @@ export class BotCore {
         this.environment = process.env.NODE_ENV || 'development';
         this.isInitialized = false;
         this.initializationSteps = [];
-        this.logger = new Logger();
         
         this.initializeClient();
         this.initializeCollections();
     }
 
     initializeClient() {
-        try {
-            this.client = new Client({
-                intents: [
-                    GatewayIntentBits.Guilds,
-                    GatewayIntentBits.GuildMessages,
-                    GatewayIntentBits.MessageContent,
-                    GatewayIntentBits.GuildVoiceStates,
-                    GatewayIntentBits.GuildMembers,
-                    GatewayIntentBits.GuildPresences,
-                    GatewayIntentBits.GuildMessageReactions,
-                    GatewayIntentBits.GuildEmojisAndStickers,
-                    GatewayIntentBits.GuildIntegrations,
-                    GatewayIntentBits.GuildWebhooks,
-                    GatewayIntentBits.GuildInvites,
-                    GatewayIntentBits.GuildScheduledEvents,
-                    GatewayIntentBits.DirectMessages,
-                    GatewayIntentBits.DirectMessageReactions,
-                    GatewayIntentBits.AutoModerationConfiguration,
-                    GatewayIntentBits.AutoModerationExecution
-                ],
-                partials: [
-                    Partials.Message,
-                    Partials.Channel,
-                    Partials.Reaction,
-                    Partials.User,
-                    Partials.GuildMember,
-                    Partials.GuildScheduledEvent
-                ],
-                allowedMentions: {
-                    parse: ['users', 'roles'],
-                    repliedUser: false
-                },
-                presence: {
-                    activities: [{
-                        name: 'World\'s Best Discord Bot v2.0',
-                        type: ActivityType.Playing
-                    }],
-                    status: 'online'
-                }
-            });
+        this.client = new Client({
+            intents: [
+                GatewayIntentBits.Guilds,
+                GatewayIntentBits.GuildMessages,
+                GatewayIntentBits.MessageContent,
+                GatewayIntentBits.GuildVoiceStates,
+                GatewayIntentBits.GuildMembers,
+                GatewayIntentBits.GuildPresences,
+                GatewayIntentBits.GuildMessageReactions,
+                GatewayIntentBits.GuildEmojisAndStickers,
+                GatewayIntentBits.GuildIntegrations,
+                GatewayIntentBits.GuildWebhooks,
+                GatewayIntentBits.GuildInvites,
+                GatewayIntentBits.GuildScheduledEvents,
+                GatewayIntentBits.DirectMessages,
+                GatewayIntentBits.DirectMessageReactions,
+                GatewayIntentBits.AutoModerationConfiguration,
+                GatewayIntentBits.AutoModerationExecution
+            ],
+            partials: [
+                Partials.Message,
+                Partials.Channel,
+                Partials.Reaction,
+                Partials.User,
+                Partials.GuildMember,
+                Partials.GuildScheduledEvent
+            ],
+            allowedMentions: {
+                parse: ['users', 'roles'],
+                repliedUser: false
+            },
+            presence: {
+                activities: [{
+                    name: 'World\'s Best Discord Bot v2.0',
+                    type: ActivityType.Playing
+                }],
+                status: 'online'
+            }
+        });
 
-            this.addInitStep('Discord Client', 'Initialized Discord client with all intents');
-        } catch (error) {
-            this.logger.error('Failed to initialize Discord client:', error);
-            throw error;
-        }
+        this.addInitStep('Discord Client', 'Initialized Discord client with all intents');
     }
 
     initializeCollections() {
-        try {
-            this.client.commands = new Collection();
-            this.client.aliases = new Collection();
-            this.client.cooldowns = new Collection();
-            this.client.interactions = new Collection();
-            this.client.events = new Collection();
-            this.client.contextMenus = new Collection();
-            this.client.buttons = new Collection();
-            this.client.selectMenus = new Collection();
-            this.client.modals = new Collection();
-            this.client.autocomplete = new Collection();
+        this.client.commands = new Collection();
+        this.client.aliases = new Collection();
+        this.client.cooldowns = new Collection();
+        this.client.interactions = new Collection();
+        this.client.events = new Collection();
+        this.client.contextMenus = new Collection();
+        this.client.buttons = new Collection();
+        this.client.selectMenus = new Collection();
+        this.client.modals = new Collection();
+        this.client.autocomplete = new Collection();
 
-            this.addInitStep('Collections', 'Initialized all Discord.js collections');
-        } catch (error) {
-            this.logger.error('Failed to initialize collections:', error);
-            throw error;
-        }
+        this.addInitStep('Collections', 'Initialized all Discord.js collections');
     }
 
     async initializeManagers() {
         try {
             // Core Systems
-            this.logger.info('Initializing core systems...');
+            this.logger = new Logger();
+            this.addInitStep('Logger', 'Advanced logging system with file rotation');
+
+            this.config = new ConfigManager();
+            await this.config.load();
+            this.addInitStep('Config Manager', 'Configuration system with hot-reload');
 
             this.database = new Database();
             await this.database.initialize();
             this.addInitStep('Database', 'SQLite database with advanced features');
 
+            this.cache = new CacheManager();
+            await this.cache.initialize();
+            this.addInitStep('Cache Manager', 'Memory-efficient caching system');
+
+            this.security = new SecurityManager();
+            this.addInitStep('Security Manager', 'Multi-layer security protection');
+
+            this.permissions = new PermissionManager();
+            this.addInitStep('Permission Manager', 'Role-based permission system');
+
+            // Feature Managers
+            this.music = new MusicManager(this.client);
+            this.addInitStep('Music Manager', 'Multi-platform music streaming');
+
+            this.economy = new EconomyManager(this.database);
+            this.addInitStep('Economy Manager', 'Virtual economy with jobs & shops');
+
+            this.moderation = new ModerationManager(this.database);
+            this.addInitStep('Moderation Manager', 'Advanced moderation tools');
+
+            this.leveling = new LevelingManager(this.database);
+            this.addInitStep('Leveling Manager', 'XP system with rank cards');
+
+            this.tickets = new TicketManager(this.database);
+            this.addInitStep('Ticket Manager', 'Professional support system');
+
+            this.ai = new AIManager();
+            this.addInitStep('AI Manager', 'GPT-4 powered AI features');
+
+            this.games = new GameManager(this.database);
+            this.addInitStep('Game Manager', 'Interactive games & tournaments');
+
+            this.social = new SocialManager(this.database);
+            this.addInitStep('Social Manager', 'Community interaction features');
+
+            this.utility = new UtilityManager();
+            this.addInitStep('Utility Manager', 'Essential utility commands');
+
+            this.anime = new AnimeManager();
+            this.addInitStep('Anime Manager', 'Anime database integration');
+
+            this.memes = new MemeManager();
+            this.addInitStep('Meme Manager', 'Meme generation & templates');
+
+            // API & Web
+            this.webServer = new WebServer(this);
+            this.addInitStep('Web Server', 'Express.js dashboard & API');
+
+            this.api = new APIManager(this);
+            this.addInitStep('API Manager', 'RESTful API with authentication');
+
+            this.webhooks = new WebhookManager();
+            this.addInitStep('Webhook Manager', 'External webhook handling');
+
+            this.notifications = new NotificationManager();
+            this.addInitStep('Notification Manager', 'Multi-channel notifications');
+
+            // Analytics & Monitoring
+            this.analytics = new AnalyticsManager(this.database);
+            this.addInitStep('Analytics Manager', 'Real-time analytics & insights');
+
+            this.monitoring = new MonitoringManager();
+            this.addInitStep('Monitoring Manager', 'System health monitoring');
+
+            this.performance = new PerformanceManager();
+            this.addInitStep('Performance Manager', 'Performance optimization');
+
             // Attach to client
             this.attachToClient();
 
-            this.logger.success('Core managers initialized successfully');
+            this.logger.success('All managers initialized successfully');
         } catch (error) {
             this.logger.error('Failed to initialize managers:', error);
             throw error;
@@ -116,19 +205,42 @@ export class BotCore {
     }
 
     attachToClient() {
-        try {
-            // Core Systems
-            this.client.logger = this.logger;
-            this.client.database = this.database;
+        // Core Systems
+        this.client.logger = this.logger;
+        this.client.config = this.config;
+        this.client.database = this.database;
+        this.client.cache = this.cache;
+        this.client.security = this.security;
+        this.client.permissions = this.permissions;
 
-            // Bot Core
-            this.client.core = this;
+        // Feature Managers
+        this.client.music = this.music;
+        this.client.economy = this.economy;
+        this.client.moderation = this.moderation;
+        this.client.leveling = this.leveling;
+        this.client.tickets = this.tickets;
+        this.client.ai = this.ai;
+        this.client.games = this.games;
+        this.client.social = this.social;
+        this.client.utility = this.utility;
+        this.client.anime = this.anime;
+        this.client.memes = this.memes;
 
-            this.addInitStep('Client Attachment', 'Core managers attached to Discord client');
-        } catch (error) {
-            this.logger.error('Failed to attach managers to client:', error);
-            throw error;
-        }
+        // API & Web
+        this.client.webServer = this.webServer;
+        this.client.api = this.api;
+        this.client.webhooks = this.webhooks;
+        this.client.notifications = this.notifications;
+
+        // Analytics & Monitoring
+        this.client.analytics = this.analytics;
+        this.client.monitoring = this.monitoring;
+        this.client.performance = this.performance;
+
+        // Bot Core
+        this.client.core = this;
+
+        this.addInitStep('Client Attachment', 'All managers attached to Discord client');
     }
 
     async initialize() {
@@ -142,6 +254,16 @@ export class BotCore {
             // Load bot components
             await this.loadCommands();
             await this.loadEvents();
+            await this.loadInteractions();
+            
+            // Initialize all managers
+            await this.initializeAllManagers();
+            
+            // Start web server
+            await this.webServer.start();
+            
+            // Start monitoring
+            await this.monitoring.start();
             
             // Setup error handling
             this.setupErrorHandling();
@@ -150,12 +272,6 @@ export class BotCore {
             this.setupGracefulShutdown();
             
             // Login to Discord
-            this.logger.info('Connecting to Discord...');
-            
-            if (!process.env.DISCORD_TOKEN) {
-                throw new Error('DISCORD_TOKEN is not set in environment variables');
-            }
-            
             await this.client.login(process.env.DISCORD_TOKEN);
             
             this.isInitialized = true;
@@ -163,8 +279,8 @@ export class BotCore {
             this.logger.success('🚀 Bot initialization completed successfully!');
             
         } catch (error) {
-            this.logger.critical('Bot initialization failed:', error);
-            throw error; // Re-throw the error for the main process to handle
+            this.logger.error('Bot initialization failed:', error);
+            throw error;
         }
     }
 
@@ -232,102 +348,164 @@ export class BotCore {
     }
 
     async loadCommands() {
-        try {
-            const commandsPath = join(__dirname, '../commands');
-            if (!existsSync(commandsPath)) {
-                this.logger.warn('Commands directory not found, skipping command loading');
-                return;
-            }
+        const commandsPath = join(__dirname, '../commands');
+        const commandFolders = readdirSync(commandsPath);
+        let commandCount = 0;
+        const loadedCommands = new Set(); // Track loaded command names
 
-            const commandFolders = readdirSync(commandsPath);
-            let commandCount = 0;
+        for (const folder of commandFolders) {
+            const folderPath = join(commandsPath, folder);
+            if (!existsSync(folderPath)) continue;
 
-            for (const folder of commandFolders) {
-                const folderPath = join(commandsPath, folder);
-                if (!existsSync(folderPath)) continue;
-
-                const commandFiles = readdirSync(folderPath).filter(file => file.endsWith('.js'));
-                
-                for (const file of commandFiles) {
-                    try {
-                        const filePath = pathToFileURL(join(folderPath, file)).href;
-                        const { default: command } = await import(filePath);
-                        
-                        if ('data' in command && 'execute' in command) {
-                            command.category = command.category || folder;
-                            this.client.commands.set(command.data.name, command);
-                            
-                            // Handle aliases
-                            if (command.aliases) {
-                                command.aliases.forEach(alias => {
-                                    this.client.aliases.set(alias, command.data.name);
-                                });
-                            }
-                            
-                            commandCount++;
-                            this.logger.debug(`Loaded command: ${command.data.name} (${folder})`);
-                        } else {
-                            this.logger.warn(`Command ${file} is missing required properties`);
+            const commandFiles = readdirSync(folderPath).filter(file => file.endsWith('.js'));
+            
+            for (const file of commandFiles) {
+                try {
+                    const filePath = pathToFileURL(join(folderPath, file)).href;
+                    const { default: command } = await import(filePath);
+                    
+                    if ('data' in command && 'execute' in command) {
+                        // Check for duplicate command names
+                        if (loadedCommands.has(command.data.name)) {
+                            this.logger.warn(`Duplicate command name found: ${command.data.name} in ${file}. Skipping...`);
+                            continue;
                         }
-                    } catch (error) {
-                        this.logger.error(`Failed to load command ${file}:`, error);
+
+                        command.category = command.category || folder;
+                        this.client.commands.set(command.data.name, command);
+                        loadedCommands.add(command.data.name);
+                        
+                        // Handle aliases
+                        if (command.aliases) {
+                            command.aliases.forEach(alias => {
+                                if (!this.client.aliases.has(alias)) {
+                                    this.client.aliases.set(alias, command.data.name);
+                                }
+                            });
+                        }
+                        
+                        commandCount++;
+                        this.logger.debug(`Loaded command: ${command.data.name} (${folder})`);
+                    } else {
+                        this.logger.warn(`Command ${file} is missing required properties`);
                     }
+                } catch (error) {
+                    this.logger.error(`Failed to load command ${file}:`, error);
                 }
             }
-
-            this.addInitStep('Commands', `Loaded ${commandCount} slash commands`);
-            this.logger.info(`✅ Loaded ${commandCount} commands`);
-        } catch (error) {
-            this.logger.error('Failed to load commands:', error);
-            // Don't throw here, allow bot to continue without commands
         }
+
+        this.addInitStep('Commands', `Loaded ${commandCount} slash commands`);
+        this.logger.info(`✅ Loaded ${commandCount} commands`);
     }
 
     async loadEvents() {
-        try {
-            const eventsPath = join(__dirname, '../events');
-            if (!existsSync(eventsPath)) {
-                this.logger.warn('Events directory not found, skipping event loading');
-                return;
+        const eventsPath = join(__dirname, '../events');
+        const eventFiles = readdirSync(eventsPath).filter(file => file.endsWith('.js'));
+        let eventCount = 0;
+
+        for (const file of eventFiles) {
+            try {
+                const filePath = pathToFileURL(join(eventsPath, file)).href;
+                const { default: event } = await import(filePath);
+                
+                if (event.once) {
+                    this.client.once(event.name, (...args) => event.execute(...args));
+                } else {
+                    this.client.on(event.name, (...args) => event.execute(...args));
+                }
+                
+                this.client.events.set(event.name, event);
+                eventCount++;
+                this.logger.debug(`Loaded event: ${event.name}`);
+            } catch (error) {
+                this.logger.error(`Failed to load event ${file}:`, error);
             }
+        }
 
-            const eventFiles = readdirSync(eventsPath).filter(file => file.endsWith('.js'));
-            let eventCount = 0;
+        this.addInitStep('Events', `Loaded ${eventCount} Discord events`);
+        this.logger.info(`✅ Loaded ${eventCount} events`);
+    }
 
-            for (const file of eventFiles) {
+    async loadInteractions() {
+        const interactionsPath = join(__dirname, '../interactions');
+        if (!existsSync(interactionsPath)) return;
+
+        const interactionFolders = readdirSync(interactionsPath);
+        let interactionCount = 0;
+
+        for (const folder of interactionFolders) {
+            const folderPath = join(interactionsPath, folder);
+            if (!existsSync(folderPath)) continue;
+
+            const interactionFiles = readdirSync(folderPath).filter(file => file.endsWith('.js'));
+            
+            for (const file of interactionFiles) {
                 try {
-                    const filePath = pathToFileURL(join(eventsPath, file)).href;
-                    const { default: event } = await import(filePath);
+                    const filePath = pathToFileURL(join(folderPath, file)).href;
+                    const { default: interaction } = await import(filePath);
                     
-                    if (event.once) {
-                        this.client.once(event.name, (...args) => event.execute(...args));
-                    } else {
-                        this.client.on(event.name, (...args) => event.execute(...args));
+                    switch (folder) {
+                        case 'buttons':
+                            this.client.buttons.set(interaction.customId, interaction);
+                            break;
+                        case 'selectMenus':
+                            this.client.selectMenus.set(interaction.customId, interaction);
+                            break;
+                        case 'modals':
+                            this.client.modals.set(interaction.customId, interaction);
+                            break;
+                        case 'contextMenus':
+                            this.client.contextMenus.set(interaction.data.name, interaction);
+                            break;
+                        case 'autocomplete':
+                            this.client.autocomplete.set(interaction.name, interaction);
+                            break;
                     }
                     
-                    this.client.events.set(event.name, event);
-                    eventCount++;
-                    this.logger.debug(`Loaded event: ${event.name}`);
+                    interactionCount++;
+                    this.logger.debug(`Loaded ${folder} interaction: ${interaction.customId || interaction.data?.name || interaction.name}`);
                 } catch (error) {
-                    this.logger.error(`Failed to load event ${file}:`, error);
+                    this.logger.error(`Failed to load interaction ${file}:`, error);
                 }
             }
-
-            this.addInitStep('Events', `Loaded ${eventCount} Discord events`);
-            this.logger.info(`✅ Loaded ${eventCount} events`);
-        } catch (error) {
-            this.logger.error('Failed to load events:', error);
-            // Don't throw here, allow bot to continue without events
         }
+
+        this.addInitStep('Interactions', `Loaded ${interactionCount} interactive components`);
+        this.logger.info(`✅ Loaded ${interactionCount} interactions`);
+    }
+
+    async initializeAllManagers() {
+        const managers = [
+            this.music, this.economy, this.moderation, this.leveling,
+            this.tickets, this.ai, this.games, this.social, this.utility,
+            this.anime, this.memes, this.webhooks, this.notifications,
+            this.analytics, this.performance
+        ];
+
+        for (const manager of managers) {
+            if (manager && typeof manager.initialize === 'function') {
+                try {
+                    await manager.initialize();
+                    this.logger.debug(`Initialized ${manager.constructor.name}`);
+                } catch (error) {
+                    this.logger.error(`Failed to initialize ${manager.constructor.name}:`, error);
+                }
+            }
+        }
+
+        this.addInitStep('Manager Initialization', 'All feature managers initialized');
     }
 
     setupErrorHandling() {
         process.on('uncaughtException', (error) => {
             this.logger.critical('Uncaught Exception:', error);
+            this.notifications?.sendErrorNotification(error, { type: 'uncaughtException' });
         });
 
         process.on('unhandledRejection', (reason, promise) => {
             this.logger.critical('Unhandled Rejection at:', promise, 'reason:', reason);
+            this.notifications?.sendErrorNotification(new Error(reason), { type: 'unhandledRejection' });
         });
 
         process.on('warning', (warning) => {
@@ -342,6 +520,7 @@ export class BotCore {
             this.logger.info(`Received ${signal}, shutting down gracefully...`);
             
             try {
+                await this.notifications?.sendShutdownNotification();
                 await this.shutdown();
                 this.logger.success('Bot shutdown completed successfully');
                 process.exit(0);
@@ -362,9 +541,24 @@ export class BotCore {
         this.logger.info('🔄 Shutting down bot...');
         
         try {
+            // Stop web server
+            if (this.webServer) {
+                await this.webServer.stop();
+            }
+            
+            // Stop monitoring
+            if (this.monitoring) {
+                await this.monitoring.stop();
+            }
+            
             // Close database connections
             if (this.database) {
                 await this.database.close();
+            }
+            
+            // Close cache connections
+            if (this.cache) {
+                await this.cache.close();
             }
             
             // Destroy Discord client
@@ -400,9 +594,20 @@ export class BotCore {
             completedAt: this.isInitialized ? new Date() : null,
             steps: this.initializationSteps,
             features: {
-                database: !!this.database,
-                commands: this.client.commands.size > 0,
-                events: this.client.events.size > 0
+                music: !!this.music,
+                economy: !!this.economy,
+                moderation: !!this.moderation,
+                leveling: !!this.leveling,
+                tickets: !!this.tickets,
+                ai: !!this.ai,
+                games: !!this.games,
+                social: !!this.social,
+                utility: !!this.utility,
+                anime: !!this.anime,
+                memes: !!this.memes,
+                webServer: !!this.webServer,
+                analytics: !!this.analytics,
+                monitoring: !!this.monitoring
             }
         };
     }

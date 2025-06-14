@@ -1,4 +1,3 @@
-import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { Logger } from '../utils/Logger.js';
 
 export class SocialManager {
@@ -6,638 +5,414 @@ export class SocialManager {
         this.logger = new Logger();
         this.database = database;
         this.relationships = new Map();
-        this.profiles = new Map();
-        this.reputationCooldowns = new Map();
-        this.marriageProposals = new Map();
-        
-        this.initializeSocialFeatures();
+        this.repCooldowns = new Map();
     }
 
     async initialize() {
-        this.logger.info('Social manager initialized');
-        await this.loadUserProfiles();
-        await this.loadRelationships();
+        this.logger.info('Social Manager initialized');
     }
 
-    initializeSocialFeatures() {
-        this.socialActions = {
-            hug: {
-                name: 'hug',
-                description: 'Give someone a warm hug',
-                gifs: [
-                    'https://media.tenor.com/images/hug1.gif',
-                    'https://media.tenor.com/images/hug2.gif',
-                    'https://media.tenor.com/images/hug3.gif'
-                ],
-                messages: [
-                    '{user1} gives {user2} a warm, comforting hug! 🤗',
-                    '{user1} wraps {user2} in a big, friendly hug! 💕',
-                    '{user1} hugs {user2} tightly! 🫂'
-                ]
-            },
-            kiss: {
-                name: 'kiss',
-                description: 'Give someone a kiss',
-                gifs: [
-                    'https://media.tenor.com/images/kiss1.gif',
-                    'https://media.tenor.com/images/kiss2.gif'
-                ],
-                messages: [
-                    '{user1} gives {user2} a sweet kiss! 😘',
-                    '{user1} kisses {user2} gently! 💋'
-                ]
-            },
-            pat: {
-                name: 'pat',
-                description: 'Pat someone on the head',
-                gifs: [
-                    'https://media.tenor.com/images/pat1.gif',
-                    'https://media.tenor.com/images/pat2.gif'
-                ],
-                messages: [
-                    '{user1} pats {user2} on the head! 👋',
-                    '{user1} gives {user2} gentle head pats! 🤚'
-                ]
-            },
-            slap: {
-                name: 'slap',
-                description: 'Playfully slap someone',
-                gifs: [
-                    'https://media.tenor.com/images/slap1.gif',
-                    'https://media.tenor.com/images/slap2.gif'
-                ],
-                messages: [
-                    '{user1} playfully slaps {user2}! 👋',
-                    '{user1} gives {user2} a light slap! ✋'
-                ]
-            },
-            poke: {
-                name: 'poke',
-                description: 'Poke someone to get their attention',
-                gifs: [
-                    'https://media.tenor.com/images/poke1.gif',
-                    'https://media.tenor.com/images/poke2.gif'
-                ],
-                messages: [
-                    '{user1} pokes {user2}! 👉',
-                    '{user1} gives {user2} a little poke! 🫵'
-                ]
-            }
-        };
-
-        this.compliments = [
-            "You're an amazing person!",
-            "Your positive energy is contagious!",
-            "You have a great sense of humor!",
-            "You're incredibly thoughtful!",
-            "You make everyone around you smile!",
-            "You're a wonderful friend!",
-            "Your creativity is inspiring!",
-            "You have such a kind heart!",
-            "You're absolutely fantastic!",
-            "You brighten up any room you enter!"
-        ];
-
-        this.gifts = {
-            flowers: { emoji: '🌸', name: 'Beautiful Flowers', rarity: 'common' },
-            chocolate: { emoji: '🍫', name: 'Sweet Chocolate', rarity: 'common' },
-            coffee: { emoji: '☕', name: 'Fresh Coffee', rarity: 'common' },
-            cake: { emoji: '🎂', name: 'Delicious Cake', rarity: 'uncommon' },
-            diamond: { emoji: '💎', name: 'Sparkling Diamond', rarity: 'rare' },
-            crown: { emoji: '👑', name: 'Golden Crown', rarity: 'legendary' }
-        };
-    }
-
-    async loadUserProfiles() {
+    async getUserProfile(userId) {
         try {
-            if (this.database && this.database.db) {
-                const profiles = await this.database.db.all('SELECT * FROM users');
-                profiles.forEach(profile => {
-                    this.profiles.set(profile.id, {
-                        id: profile.id,
-                        bio: profile.profile_bio || '',
-                        color: profile.profile_color || '#7289da',
-                        badges: JSON.parse(profile.badges || '[]'),
-                        marriedTo: profile.married_to,
-                        reputation: profile.rep || 0
-                    });
-                });
-            }
-        } catch (error) {
-            this.logger.error('Error loading user profiles:', error);
-        }
-    }
-
-    async loadRelationships() {
-        try {
-            if (this.database && this.database.db) {
-                const relationships = await this.database.db.all('SELECT * FROM relationships');
-                relationships.forEach(rel => {
-                    const key = `${rel.user1_id}_${rel.user2_id}`;
-                    this.relationships.set(key, rel);
-                });
-            }
-        } catch (error) {
-            this.logger.error('Error loading relationships:', error);
-        }
-    }
-
-    // Social Actions
-    async performSocialAction(action, user1, user2) {
-        try {
-            const actionData = this.socialActions[action];
-            if (!actionData) {
-                return { success: false, error: 'Unknown social action' };
-            }
-
-            // Check if user is trying to interact with themselves
-            if (user1.id === user2.id) {
-                return { success: false, error: 'You cannot perform this action on yourself!' };
-            }
-
-            // Get random message and GIF
-            const message = actionData.messages[Math.floor(Math.random() * actionData.messages.length)]
-                .replace('{user1}', user1.username)
-                .replace('{user2}', user2.username);
-
-            const gif = actionData.gifs[Math.floor(Math.random() * actionData.gifs.length)];
-
-            const embed = new EmbedBuilder()
-                .setColor('#FF69B4')
-                .setDescription(message)
-                .setImage(gif)
-                .setTimestamp();
-
-            return { success: true, embed };
-
-        } catch (error) {
-            this.logger.error('Error performing social action:', error);
-            return { success: false, error: 'Failed to perform social action' };
-        }
-    }
-
-    // Profile Management
-    async getProfile(userId, targetUser = null) {
-        try {
-            const user = targetUser || { id: userId };
-            let profile = this.profiles.get(user.id);
-
-            if (!profile) {
-                profile = {
-                    id: user.id,
-                    bio: '',
-                    color: '#7289da',
-                    badges: [],
-                    marriedTo: null,
-                    reputation: 0
+            if (!this.database || !this.database.db) {
+                return {
+                    success: false,
+                    error: 'Database not available'
                 };
-                this.profiles.set(user.id, profile);
             }
 
-            // Get additional stats
-            const stats = await this.getUserStats(user.id);
-            const marriage = profile.marriedTo ? await this.getMarriageInfo(user.id) : null;
-
-            const embed = new EmbedBuilder()
-                .setColor(profile.color)
-                .setTitle(`${targetUser?.username || 'Your'} Profile`)
-                .setThumbnail(targetUser?.displayAvatarURL() || null)
-                .addFields(
-                    { name: '📝 Bio', value: profile.bio || 'No bio set', inline: false },
-                    { name: '⭐ Reputation', value: profile.reputation.toString(), inline: true },
-                    { name: '🏆 Badges', value: profile.badges.length > 0 ? profile.badges.join(' ') : 'No badges', inline: true },
-                    { name: '💕 Relationship Status', value: marriage ? `Married to ${marriage.partnerName}` : 'Single', inline: true }
-                )
-                .setTimestamp();
-
-            if (stats) {
-                embed.addFields(
-                    { name: '📊 Social Stats', value: `Hugs given: ${stats.hugsGiven || 0}\nCompliments sent: ${stats.complimentsSent || 0}`, inline: false }
-                );
-            }
-
-            return { success: true, embed };
-
-        } catch (error) {
-            this.logger.error('Error getting profile:', error);
-            return { success: false, error: 'Failed to get profile' };
-        }
-    }
-
-    async updateProfile(userId, field, value) {
-        try {
-            let profile = this.profiles.get(userId) || {
-                id: userId,
-                bio: '',
-                color: '#7289da',
-                badges: [],
-                marriedTo: null,
-                reputation: 0
+            const user = await this.database.getUser(userId);
+            
+            return {
+                success: true,
+                profile: {
+                    id: user.id,
+                    bio: user.profile_bio || 'No bio set',
+                    color: user.profile_color || '#7289da',
+                    badges: JSON.parse(user.badges || '[]'),
+                    achievements: JSON.parse(user.achievements || '[]'),
+                    reputation: user.rep || 0,
+                    marriedTo: user.married_to,
+                    joinedAt: user.created_at
+                }
             };
 
-            switch (field) {
-                case 'bio':
-                    if (value.length > 200) {
-                        return { success: false, error: 'Bio must be 200 characters or less' };
-                    }
-                    profile.bio = value;
-                    break;
-                case 'color':
-                    if (!/^#[0-9A-F]{6}$/i.test(value)) {
-                        return { success: false, error: 'Invalid color format. Use hex format (#RRGGBB)' };
-                    }
-                    profile.color = value;
-                    break;
-                default:
-                    return { success: false, error: 'Invalid field' };
-            }
-
-            this.profiles.set(userId, profile);
-            await this.saveProfile(profile);
-
-            return { success: true, message: `Profile ${field} updated successfully!` };
-
         } catch (error) {
-            this.logger.error('Error updating profile:', error);
-            return { success: false, error: 'Failed to update profile' };
+            this.logger.error('Get user profile error:', error);
+            return {
+                success: false,
+                error: 'Failed to get user profile'
+            };
         }
     }
 
-    // Reputation System
-    async giveReputation(fromUserId, toUserId, reason = '') {
+    async updateProfile(userId, updates) {
         try {
+            if (!this.database || !this.database.db) {
+                return {
+                    success: false,
+                    error: 'Database not available'
+                };
+            }
+
+            const allowedUpdates = {};
+            if (updates.bio) allowedUpdates.profile_bio = updates.bio.slice(0, 500);
+            if (updates.color) allowedUpdates.profile_color = updates.color;
+
+            await this.database.updateUser(userId, allowedUpdates);
+
+            return {
+                success: true,
+                message: 'Profile updated successfully'
+            };
+
+        } catch (error) {
+            this.logger.error('Update profile error:', error);
+            return {
+                success: false,
+                error: 'Failed to update profile'
+            };
+        }
+    }
+
+    async giveReputation(fromUserId, toUserId, guildId, reason = '') {
+        try {
+            if (!this.database || !this.database.db) {
+                return {
+                    success: false,
+                    error: 'Database not available'
+                };
+            }
+
+            // Check if users are the same
             if (fromUserId === toUserId) {
-                return { success: false, error: 'You cannot give reputation to yourself!' };
+                return {
+                    success: false,
+                    error: 'You cannot give reputation to yourself'
+                };
             }
 
             // Check cooldown (24 hours)
             const cooldownKey = `${fromUserId}_${toUserId}`;
-            const lastGiven = this.reputationCooldowns.get(cooldownKey);
+            const lastRep = this.repCooldowns.get(cooldownKey);
             const now = Date.now();
             const cooldownTime = 24 * 60 * 60 * 1000; // 24 hours
 
-            if (lastGiven && now - lastGiven < cooldownTime) {
-                const timeLeft = cooldownTime - (now - lastGiven);
+            if (lastRep && (now - lastRep) < cooldownTime) {
+                const timeLeft = cooldownTime - (now - lastRep);
                 const hoursLeft = Math.ceil(timeLeft / (60 * 60 * 1000));
-                return { success: false, error: `You can give reputation to this user again in ${hoursLeft} hours` };
+                
+                return {
+                    success: false,
+                    error: `You can give reputation to this user again in ${hoursLeft} hours`
+                };
             }
 
-            // Update reputation
-            let profile = this.profiles.get(toUserId) || {
-                id: toUserId,
-                bio: '',
-                color: '#7289da',
-                badges: [],
-                marriedTo: null,
-                reputation: 0
-            };
+            // Add reputation record
+            await this.database.db.run(`
+                INSERT INTO reputation (from_user_id, to_user_id, guild_id, reason)
+                VALUES (?, ?, ?, ?)
+            `, [fromUserId, toUserId, guildId, reason]);
 
-            profile.reputation += 1;
-            this.profiles.set(toUserId, profile);
-            this.reputationCooldowns.set(cooldownKey, now);
+            // Update user's total reputation
+            const toUser = await this.database.getUser(toUserId);
+            await this.database.updateUser(toUserId, { rep: (toUser.rep || 0) + 1 });
 
-            // Save to database
-            await this.saveProfile(profile);
-            await this.saveReputationGiven(fromUserId, toUserId, reason);
+            // Set cooldown
+            this.repCooldowns.set(cooldownKey, now);
 
-            return { 
-                success: true, 
-                newReputation: profile.reputation,
-                message: `Reputation given successfully! They now have ${profile.reputation} reputation points.`
+            return {
+                success: true,
+                newReputation: (toUser.rep || 0) + 1
             };
 
         } catch (error) {
-            this.logger.error('Error giving reputation:', error);
-            return { success: false, error: 'Failed to give reputation' };
+            this.logger.error('Give reputation error:', error);
+            return {
+                success: false,
+                error: 'Failed to give reputation'
+            };
         }
     }
 
-    // Marriage System
     async proposeMarriage(proposerId, targetId) {
         try {
+            if (!this.database || !this.database.db) {
+                return {
+                    success: false,
+                    error: 'Database not available'
+                };
+            }
+
+            // Check if users are the same
             if (proposerId === targetId) {
-                return { success: false, error: 'You cannot marry yourself!' };
+                return {
+                    success: false,
+                    error: 'You cannot marry yourself'
+                };
             }
 
             // Check if either user is already married
-            const proposerProfile = this.profiles.get(proposerId);
-            const targetProfile = this.profiles.get(targetId);
+            const proposer = await this.database.getUser(proposerId);
+            const target = await this.database.getUser(targetId);
 
-            if (proposerProfile?.marriedTo) {
-                return { success: false, error: 'You are already married!' };
+            if (proposer.married_to) {
+                return {
+                    success: false,
+                    error: 'You are already married'
+                };
             }
 
-            if (targetProfile?.marriedTo) {
-                return { success: false, error: 'This user is already married!' };
+            if (target.married_to) {
+                return {
+                    success: false,
+                    error: 'This user is already married'
+                };
             }
 
             // Check for existing proposal
-            const proposalKey = `${proposerId}_${targetId}`;
-            if (this.marriageProposals.has(proposalKey)) {
-                return { success: false, error: 'You have already proposed to this user!' };
+            const existingProposal = await this.database.db.get(`
+                SELECT * FROM relationships 
+                WHERE (user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?)
+                AND type = 'marriage' AND status = 'pending'
+            `, [proposerId, targetId, targetId, proposerId]);
+
+            if (existingProposal) {
+                return {
+                    success: false,
+                    error: 'There is already a pending marriage proposal between you two'
+                };
             }
 
-            // Create proposal
-            const proposal = {
-                proposerId,
-                targetId,
-                timestamp: Date.now(),
-                status: 'pending'
+            // Create marriage proposal
+            await this.database.db.run(`
+                INSERT INTO relationships (user1_id, user2_id, type, status)
+                VALUES (?, ?, 'marriage', 'pending')
+            `, [proposerId, targetId]);
+
+            return {
+                success: true,
+                message: 'Marriage proposal sent! Waiting for response...'
             };
 
-            this.marriageProposals.set(proposalKey, proposal);
-
-            // Set expiration (24 hours)
-            setTimeout(() => {
-                this.marriageProposals.delete(proposalKey);
-            }, 24 * 60 * 60 * 1000);
-
-            return { success: true, proposal };
-
         } catch (error) {
-            this.logger.error('Error proposing marriage:', error);
-            return { success: false, error: 'Failed to propose marriage' };
+            this.logger.error('Propose marriage error:', error);
+            return {
+                success: false,
+                error: 'Failed to propose marriage'
+            };
         }
     }
 
-    async respondToProposal(proposerId, targetId, accept) {
+    async respondToMarriage(targetId, proposerId, accept) {
         try {
-            const proposalKey = `${proposerId}_${targetId}`;
-            const proposal = this.marriageProposals.get(proposalKey);
+            if (!this.database || !this.database.db) {
+                return {
+                    success: false,
+                    error: 'Database not available'
+                };
+            }
+
+            // Find the proposal
+            const proposal = await this.database.db.get(`
+                SELECT * FROM relationships 
+                WHERE user1_id = ? AND user2_id = ? AND type = 'marriage' AND status = 'pending'
+            `, [proposerId, targetId]);
 
             if (!proposal) {
-                return { success: false, error: 'No marriage proposal found!' };
+                return {
+                    success: false,
+                    error: 'No pending marriage proposal found'
+                };
             }
 
-            this.marriageProposals.delete(proposalKey);
+            if (accept) {
+                // Accept the proposal
+                await this.database.db.run(`
+                    UPDATE relationships 
+                    SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                `, [proposal.id]);
 
-            if (!accept) {
-                return { success: true, message: 'Marriage proposal declined.' };
+                // Update both users' marriage status
+                await this.database.updateUser(proposerId, { married_to: targetId });
+                await this.database.updateUser(targetId, { married_to: proposerId });
+
+                return {
+                    success: true,
+                    message: 'Congratulations! You are now married! 💕'
+                };
+            } else {
+                // Reject the proposal
+                await this.database.db.run(`
+                    UPDATE relationships 
+                    SET status = 'rejected'
+                    WHERE id = ?
+                `, [proposal.id]);
+
+                return {
+                    success: true,
+                    message: 'Marriage proposal declined'
+                };
             }
-
-            // Create marriage
-            let proposerProfile = this.profiles.get(proposerId) || this.createDefaultProfile(proposerId);
-            let targetProfile = this.profiles.get(targetId) || this.createDefaultProfile(targetId);
-
-            proposerProfile.marriedTo = targetId;
-            targetProfile.marriedTo = proposerId;
-
-            this.profiles.set(proposerId, proposerProfile);
-            this.profiles.set(targetId, targetProfile);
-
-            // Save to database
-            await this.saveProfile(proposerProfile);
-            await this.saveProfile(targetProfile);
-
-            return { 
-                success: true, 
-                message: 'Congratulations! You are now married! 💒',
-                marriageDate: new Date()
-            };
 
         } catch (error) {
-            this.logger.error('Error responding to proposal:', error);
-            return { success: false, error: 'Failed to respond to proposal' };
+            this.logger.error('Respond to marriage error:', error);
+            return {
+                success: false,
+                error: 'Failed to respond to marriage proposal'
+            };
         }
     }
 
     async divorce(userId) {
         try {
-            const profile = this.profiles.get(userId);
-            if (!profile?.marriedTo) {
-                return { success: false, error: 'You are not married!' };
+            if (!this.database || !this.database.db) {
+                return {
+                    success: false,
+                    error: 'Database not available'
+                };
             }
 
-            const partnerId = profile.marriedTo;
-            const partnerProfile = this.profiles.get(partnerId);
-
-            // Remove marriage
-            profile.marriedTo = null;
-            if (partnerProfile) {
-                partnerProfile.marriedTo = null;
-                this.profiles.set(partnerId, partnerProfile);
-                await this.saveProfile(partnerProfile);
+            const user = await this.database.getUser(userId);
+            
+            if (!user.married_to) {
+                return {
+                    success: false,
+                    error: 'You are not married'
+                };
             }
 
-            this.profiles.set(userId, profile);
-            await this.saveProfile(profile);
+            const spouseId = user.married_to;
 
-            return { success: true, message: 'Divorce completed. You are now single.' };
+            // Remove marriage status from both users
+            await this.database.updateUser(userId, { married_to: null });
+            await this.database.updateUser(spouseId, { married_to: null });
 
-        } catch (error) {
-            this.logger.error('Error processing divorce:', error);
-            return { success: false, error: 'Failed to process divorce' };
-        }
-    }
+            // Update relationship status
+            await this.database.db.run(`
+                UPDATE relationships 
+                SET status = 'divorced'
+                WHERE ((user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?))
+                AND type = 'marriage' AND status = 'accepted'
+            `, [userId, spouseId, spouseId, userId]);
 
-    // Gift System
-    async sendGift(fromUserId, toUserId, giftType) {
-        try {
-            if (fromUserId === toUserId) {
-                return { success: false, error: 'You cannot send gifts to yourself!' };
-            }
-
-            const gift = this.gifts[giftType];
-            if (!gift) {
-                return { success: false, error: 'Invalid gift type!' };
-            }
-
-            // Create gift record
-            const giftRecord = {
-                from: fromUserId,
-                to: toUserId,
-                gift: giftType,
-                timestamp: new Date()
+            return {
+                success: true,
+                message: 'You are now divorced 💔'
             };
 
-            // Save gift to database
-            await this.saveGift(giftRecord);
-
-            const embed = new EmbedBuilder()
-                .setColor('#FF69B4')
-                .setTitle('🎁 Gift Sent!')
-                .setDescription(`You sent ${gift.emoji} **${gift.name}** to <@${toUserId}>!`)
-                .addFields({ name: 'Rarity', value: gift.rarity, inline: true })
-                .setTimestamp();
-
-            return { success: true, embed, gift };
-
         } catch (error) {
-            this.logger.error('Error sending gift:', error);
-            return { success: false, error: 'Failed to send gift' };
+            this.logger.error('Divorce error:', error);
+            return {
+                success: false,
+                error: 'Failed to process divorce'
+            };
         }
     }
 
-    // Compliment System
-    async sendCompliment(toUserId) {
-        try {
-            const compliment = this.compliments[Math.floor(Math.random() * this.compliments.length)];
-
-            const embed = new EmbedBuilder()
-                .setColor('#FFB6C1')
-                .setTitle('💝 Compliment')
-                .setDescription(`<@${toUserId}>, ${compliment}`)
-                .setTimestamp();
-
-            return { success: true, embed, compliment };
-
-        } catch (error) {
-            this.logger.error('Error sending compliment:', error);
-            return { success: false, error: 'Failed to send compliment' };
-        }
-    }
-
-    // Ship Compatibility
     async calculateShip(user1Id, user2Id) {
         try {
-            // Generate a "random" but consistent compatibility score
+            // Simple compatibility calculation based on user IDs
             const combined = user1Id + user2Id;
-            let hash = 0;
-            for (let i = 0; i < combined.length; i++) {
-                const char = combined.charCodeAt(i);
-                hash = ((hash << 5) - hash) + char;
-                hash = hash & hash; // Convert to 32-bit integer
-            }
-            
+            const hash = this.simpleHash(combined);
             const compatibility = Math.abs(hash) % 101; // 0-100
 
-            let description, emoji;
+            let message;
             if (compatibility >= 90) {
-                description = "Perfect match! You're soulmates! 💕";
-                emoji = "💖";
+                message = "Perfect match! 💕 You two are meant to be together!";
             } else if (compatibility >= 75) {
-                description = "Great compatibility! You work well together! 💗";
-                emoji = "💕";
+                message = "Great compatibility! 💖 You make a wonderful couple!";
             } else if (compatibility >= 50) {
-                description = "Good match! There's potential here! 💓";
-                emoji = "💝";
+                message = "Good match! 💝 You have potential together!";
             } else if (compatibility >= 25) {
-                description = "Some compatibility, but it might take work! 💔";
-                emoji = "💛";
+                message = "It could work! 💛 With some effort, you might make it!";
             } else {
-                description = "Not the best match, but opposites can attract! 💙";
-                emoji = "💙";
+                message = "Not the best match... 💔 But love can overcome anything!";
             }
 
-            const embed = new EmbedBuilder()
-                .setColor('#FF1493')
-                .setTitle(`${emoji} Ship Calculator`)
-                .setDescription(`<@${user1Id}> ❤️ <@${user2Id}>`)
-                .addFields(
-                    { name: 'Compatibility Score', value: `${compatibility}%`, inline: true },
-                    { name: 'Result', value: description, inline: false }
-                )
-                .setTimestamp();
-
-            return { success: true, embed, compatibility };
+            return {
+                success: true,
+                compatibility,
+                message
+            };
 
         } catch (error) {
-            this.logger.error('Error calculating ship:', error);
-            return { success: false, error: 'Failed to calculate compatibility' };
+            this.logger.error('Calculate ship error:', error);
+            return {
+                success: false,
+                error: 'Failed to calculate compatibility'
+            };
         }
     }
 
-    // Database Operations
-    async saveProfile(profile) {
+    async sendGift(fromUserId, toUserId, giftType) {
         try {
-            if (this.database && this.database.db) {
-                await this.database.db.run(`
-                    UPDATE users SET 
-                    profile_bio = ?, 
-                    profile_color = ?, 
-                    badges = ?, 
-                    married_to = ?, 
-                    rep = ? 
-                    WHERE id = ?
-                `, [
-                    profile.bio,
-                    profile.color,
-                    JSON.stringify(profile.badges),
-                    profile.marriedTo,
-                    profile.reputation,
-                    profile.id
-                ]);
+            const gifts = {
+                flowers: { name: '🌹 Flowers', message: 'sent you beautiful flowers!' },
+                chocolate: { name: '🍫 Chocolate', message: 'gave you delicious chocolate!' },
+                coffee: { name: '☕ Coffee', message: 'bought you a coffee!' },
+                cake: { name: '🎂 Cake', message: 'surprised you with cake!' },
+                heart: { name: '💖 Heart', message: 'sent you their love!' }
+            };
+
+            const gift = gifts[giftType];
+            if (!gift) {
+                return {
+                    success: false,
+                    error: 'Invalid gift type'
+                };
             }
+
+            return {
+                success: true,
+                gift: gift.name,
+                message: gift.message
+            };
+
         } catch (error) {
-            this.logger.error('Error saving profile:', error);
+            this.logger.error('Send gift error:', error);
+            return {
+                success: false,
+                error: 'Failed to send gift'
+            };
         }
     }
 
-    async saveReputationGiven(fromUserId, toUserId, reason) {
-        try {
-            if (this.database && this.database.db) {
-                await this.database.db.run(`
-                    INSERT INTO reputation (from_user_id, to_user_id, guild_id, reason)
-                    VALUES (?, ?, ?, ?)
-                `, [fromUserId, toUserId, 'global', reason]);
-            }
-        } catch (error) {
-            this.logger.error('Error saving reputation:', error);
+    async getRandomCompliment() {
+        const compliments = [
+            "You're an amazing person! ✨",
+            "Your positive energy is contagious! 🌟",
+            "You make the world a better place! 🌍",
+            "You're incredibly talented! 🎨",
+            "Your kindness is inspiring! 💖",
+            "You have a wonderful sense of humor! 😄",
+            "You're a great friend! 👫",
+            "Your creativity knows no bounds! 🎭",
+            "You're absolutely fantastic! 🌈",
+            "You brighten everyone's day! ☀️"
+        ];
+
+        return compliments[Math.floor(Math.random() * compliments.length)];
+    }
+
+    simpleHash(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32-bit integer
         }
+        return hash;
     }
 
-    async saveGift(giftRecord) {
-        try {
-            // This would save to a gifts table if it existed
-            this.logger.debug('Gift sent:', giftRecord);
-        } catch (error) {
-            this.logger.error('Error saving gift:', error);
-        }
-    }
-
-    // Utility Methods
-    createDefaultProfile(userId) {
-        return {
-            id: userId,
-            bio: '',
-            color: '#7289da',
-            badges: [],
-            marriedTo: null,
-            reputation: 0
-        };
-    }
-
-    async getUserStats(userId) {
-        // Return user social statistics
-        return {
-            hugsGiven: 0,
-            complimentsSent: 0,
-            giftsReceived: 0,
-            reputationGiven: 0
-        };
-    }
-
-    async getMarriageInfo(userId) {
-        const profile = this.profiles.get(userId);
-        if (!profile?.marriedTo) return null;
-
-        return {
-            partnerId: profile.marriedTo,
-            partnerName: 'Partner', // Would fetch from user cache
-            marriageDate: new Date() // Would fetch from database
-        };
-    }
-
-    getAvailableGifts() {
-        return Object.keys(this.gifts);
-    }
-
-    getGiftInfo(giftType) {
-        return this.gifts[giftType];
-    }
-
-    getSocialActions() {
-        return Object.keys(this.socialActions);
-    }
-
-    // Cleanup
     cleanup() {
-        // Clean up expired proposals and cooldowns
-        const now = Date.now();
+        // Clean up old reputation cooldowns (older than 25 hours)
+        const cutoff = Date.now() - (25 * 60 * 60 * 1000);
         
-        for (const [key, timestamp] of this.reputationCooldowns.entries()) {
-            if (now - timestamp > 24 * 60 * 60 * 1000) {
-                this.reputationCooldowns.delete(key);
+        for (const [key, timestamp] of this.repCooldowns.entries()) {
+            if (timestamp < cutoff) {
+                this.repCooldowns.delete(key);
             }
         }
     }

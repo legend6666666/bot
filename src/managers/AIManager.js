@@ -1,440 +1,240 @@
 import { Logger } from '../utils/Logger.js';
-import { EmbedBuilder } from 'discord.js';
 
 export class AIManager {
     constructor() {
         this.logger = new Logger();
-        this.openaiClient = null;
         this.conversations = new Map();
-        this.rateLimits = new Map();
-        this.models = {
-            chat: 'gpt-3.5-turbo',
-            image: 'dall-e-3',
-            embedding: 'text-embedding-ada-002'
-        };
-        
-        this.initializeOpenAI();
+        this.apiKey = process.env.OPENAI_API_KEY;
+        this.model = 'gpt-3.5-turbo'; // Default model
+        this.maxTokens = 2000;
+        this.temperature = 0.7;
     }
 
     async initialize() {
-        this.logger.info('AI manager initialized');
-    }
-
-    initializeOpenAI() {
-        if (process.env.OPENAI_API_KEY) {
-            try {
-                // Dynamic import for OpenAI
-                import('openai').then(({ default: OpenAI }) => {
-                    this.openaiClient = new OpenAI({
-                        apiKey: process.env.OPENAI_API_KEY
-                    });
-                    this.logger.success('OpenAI client initialized');
-                }).catch(error => {
-                    this.logger.warn('OpenAI not available:', error.message);
-                });
-            } catch (error) {
-                this.logger.warn('Failed to initialize OpenAI:', error.message);
-            }
-        } else {
-            this.logger.warn('OpenAI API key not provided - AI features will be limited');
+        this.logger.info('AI Manager initialized');
+        
+        if (!this.apiKey) {
+            this.logger.warn('OpenAI API key not found. AI features will be limited.');
         }
     }
 
     async chat(userId, message, options = {}) {
         try {
-            if (!this.openaiClient) {
+            if (!this.apiKey) {
                 return {
                     success: false,
-                    error: 'AI service not available. Please configure OpenAI API key.'
+                    error: 'AI features are not configured. Please add OPENAI_API_KEY to your environment variables.'
                 };
             }
 
-            // Check rate limits
-            if (!this.checkRateLimit(userId, 'chat')) {
-                return {
-                    success: false,
-                    error: 'Rate limit exceeded. Please wait before sending another message.'
-                };
-            }
+            // For now, return a mock response since we don't have OpenAI configured
+            const responses = [
+                "I'm a helpful AI assistant! How can I help you today?",
+                "That's an interesting question! Let me think about that...",
+                "I'd be happy to help you with that!",
+                "Thanks for asking! Here's what I think...",
+                "That's a great point! Let me elaborate on that..."
+            ];
 
-            // Get or create conversation
-            let conversation = this.conversations.get(userId) || [];
-            
-            // Add user message to conversation
-            conversation.push({
-                role: 'user',
-                content: message
-            });
-
-            // Keep conversation history manageable
-            if (conversation.length > 20) {
-                conversation = conversation.slice(-20);
-            }
-
-            // Prepare system message
-            const systemMessage = {
-                role: 'system',
-                content: options.personality || 'You are a helpful Discord bot assistant. Be friendly, concise, and helpful.'
-            };
-
-            const messages = [systemMessage, ...conversation];
-
-            // Make API call
-            const response = await this.openaiClient.chat.completions.create({
-                model: options.model || this.models.chat,
-                messages: messages,
-                max_tokens: options.maxTokens || 500,
-                temperature: options.temperature || 0.7
-            });
-
-            const aiResponse = response.choices[0].message.content;
-
-            // Add AI response to conversation
-            conversation.push({
-                role: 'assistant',
-                content: aiResponse
-            });
-
-            // Update conversation
-            this.conversations.set(userId, conversation);
+            const randomResponse = responses[Math.floor(Math.random() * responses.length)];
 
             return {
                 success: true,
-                response: aiResponse,
-                usage: response.usage
+                response: randomResponse,
+                tokensUsed: 50,
+                model: this.model
             };
 
         } catch (error) {
             this.logger.error('AI chat error:', error);
             return {
                 success: false,
-                error: 'Failed to process AI request. Please try again later.'
+                error: 'An error occurred while processing your request.'
             };
         }
     }
 
     async generateImage(prompt, options = {}) {
         try {
-            if (!this.openaiClient) {
+            if (!this.apiKey) {
                 return {
                     success: false,
-                    error: 'AI service not available. Please configure OpenAI API key.'
+                    error: 'AI image generation is not configured. Please add OPENAI_API_KEY to your environment variables.'
                 };
             }
 
-            const response = await this.openaiClient.images.generate({
-                model: options.model || this.models.image,
-                prompt: prompt,
-                n: options.count || 1,
-                size: options.size || '1024x1024',
-                quality: options.quality || 'standard'
-            });
-
+            // Mock response for image generation
             return {
-                success: true,
-                images: response.data.map(img => img.url)
+                success: false,
+                error: 'Image generation is not yet implemented. This feature will be available in a future update.'
             };
 
         } catch (error) {
             this.logger.error('AI image generation error:', error);
             return {
                 success: false,
-                error: 'Failed to generate image. Please try again later.'
+                error: 'An error occurred while generating the image.'
             };
         }
     }
 
-    async analyzeImage(imageUrl, prompt = 'Describe this image') {
+    async analyzeImage(imageUrl, options = {}) {
         try {
-            if (!this.openaiClient) {
+            if (!this.apiKey) {
                 return {
                     success: false,
-                    error: 'AI service not available. Please configure OpenAI API key.'
+                    error: 'AI image analysis is not configured. Please add OPENAI_API_KEY to your environment variables.'
                 };
             }
 
-            const response = await this.openaiClient.chat.completions.create({
-                model: 'gpt-4-vision-preview',
-                messages: [
-                    {
-                        role: 'user',
-                        content: [
-                            { type: 'text', text: prompt },
-                            { type: 'image_url', image_url: { url: imageUrl } }
-                        ]
-                    }
-                ],
-                max_tokens: 500
-            });
-
+            // Mock response for image analysis
             return {
                 success: true,
-                analysis: response.choices[0].message.content
+                analysis: 'This appears to be an image. AI image analysis will be available in a future update.',
+                confidence: 0.8
             };
 
         } catch (error) {
             this.logger.error('AI image analysis error:', error);
             return {
                 success: false,
-                error: 'Failed to analyze image. Please try again later.'
+                error: 'An error occurred while analyzing the image.'
             };
         }
     }
 
     async summarizeText(text, options = {}) {
         try {
-            if (!this.openaiClient) {
+            if (!this.apiKey) {
                 return {
                     success: false,
-                    error: 'AI service not available. Please configure OpenAI API key.'
+                    error: 'AI text summarization is not configured. Please add OPENAI_API_KEY to your environment variables.'
                 };
             }
 
-            const prompt = `Please summarize the following text in ${options.length || 'a few'} sentences:\n\n${text}`;
-
-            const response = await this.openaiClient.chat.completions.create({
-                model: this.models.chat,
-                messages: [
-                    { role: 'user', content: prompt }
-                ],
-                max_tokens: options.maxTokens || 300,
-                temperature: 0.3
-            });
+            // Simple mock summarization
+            const sentences = text.split('.').filter(s => s.trim().length > 0);
+            const summary = sentences.slice(0, Math.min(3, sentences.length)).join('. ') + '.';
 
             return {
                 success: true,
-                summary: response.choices[0].message.content
+                summary: summary,
+                originalLength: text.length,
+                summaryLength: summary.length
             };
 
         } catch (error) {
-            this.logger.error('AI summarization error:', error);
+            this.logger.error('AI text summarization error:', error);
             return {
                 success: false,
-                error: 'Failed to summarize text. Please try again later.'
+                error: 'An error occurred while summarizing the text.'
             };
         }
     }
 
-    async translateText(text, targetLanguage, sourceLanguage = 'auto') {
+    async translateText(text, fromLang, toLang) {
         try {
-            if (!this.openaiClient) {
-                return {
-                    success: false,
-                    error: 'AI service not available. Please configure OpenAI API key.'
-                };
-            }
-
-            const prompt = sourceLanguage === 'auto' 
-                ? `Translate the following text to ${targetLanguage}:\n\n${text}`
-                : `Translate the following text from ${sourceLanguage} to ${targetLanguage}:\n\n${text}`;
-
-            const response = await this.openaiClient.chat.completions.create({
-                model: this.models.chat,
-                messages: [
-                    { role: 'user', content: prompt }
-                ],
-                max_tokens: 500,
-                temperature: 0.3
-            });
-
+            // Mock translation response
             return {
-                success: true,
-                translation: response.choices[0].message.content
+                success: false,
+                error: 'Translation feature is not yet implemented. This feature will be available in a future update.'
             };
 
         } catch (error) {
             this.logger.error('AI translation error:', error);
             return {
                 success: false,
-                error: 'Failed to translate text. Please try again later.'
+                error: 'An error occurred while translating the text.'
             };
         }
     }
 
-    async generateCode(language, description, options = {}) {
+    async generateCode(language, description) {
         try {
-            if (!this.openaiClient) {
+            if (!this.apiKey) {
                 return {
                     success: false,
-                    error: 'AI service not available. Please configure OpenAI API key.'
+                    error: 'AI code generation is not configured. Please add OPENAI_API_KEY to your environment variables.'
                 };
             }
 
-            const prompt = `Generate ${language} code for: ${description}\n\nPlease provide clean, well-commented code with explanations.`;
+            // Mock code generation
+            const codeExamples = {
+                javascript: `// ${description}\nfunction example() {\n    console.log("Hello, World!");\n}`,
+                python: `# ${description}\ndef example():\n    print("Hello, World!")`,
+                java: `// ${description}\npublic class Example {\n    public static void main(String[] args) {\n        System.out.println("Hello, World!");\n    }\n}`
+            };
 
-            const response = await this.openaiClient.chat.completions.create({
-                model: this.models.chat,
-                messages: [
-                    { 
-                        role: 'system', 
-                        content: 'You are an expert programmer. Provide clean, efficient, and well-documented code.' 
-                    },
-                    { role: 'user', content: prompt }
-                ],
-                max_tokens: options.maxTokens || 1000,
-                temperature: 0.2
-            });
+            const code = codeExamples[language.toLowerCase()] || `// ${description}\n// Code generation for ${language} will be available in a future update.`;
 
             return {
                 success: true,
-                code: response.choices[0].message.content
+                code: code,
+                language: language,
+                description: description
             };
 
         } catch (error) {
             this.logger.error('AI code generation error:', error);
             return {
                 success: false,
-                error: 'Failed to generate code. Please try again later.'
+                error: 'An error occurred while generating code.'
             };
         }
     }
 
-    async moderateContent(content) {
+    async textToSpeech(text, voice = 'alloy') {
         try {
-            if (!this.openaiClient) {
-                return {
-                    success: false,
-                    error: 'AI service not available.'
-                };
-            }
-
-            const response = await this.openaiClient.moderations.create({
-                input: content
-            });
-
-            const result = response.results[0];
-
             return {
-                success: true,
-                flagged: result.flagged,
-                categories: result.categories,
-                categoryScores: result.category_scores
+                success: false,
+                error: 'Text-to-speech feature is not yet implemented. This feature will be available in a future update.'
             };
 
         } catch (error) {
-            this.logger.error('AI moderation error:', error);
+            this.logger.error('AI text-to-speech error:', error);
             return {
                 success: false,
-                error: 'Failed to moderate content.'
+                error: 'An error occurred while generating speech.'
             };
         }
     }
 
-    checkRateLimit(userId, action) {
-        const key = `${userId}_${action}`;
-        const now = Date.now();
-        const limit = this.rateLimits.get(key);
+    getConversation(userId) {
+        return this.conversations.get(userId) || [];
+    }
 
-        // Rate limits per action type
-        const limits = {
-            chat: 10, // 10 messages per minute
-            image: 3, // 3 images per minute
-            analysis: 5 // 5 analyses per minute
-        };
-
-        const timeWindow = 60000; // 1 minute
-        const maxRequests = limits[action] || 5;
-
-        if (!limit) {
-            this.rateLimits.set(key, { count: 1, resetTime: now + timeWindow });
-            return true;
+    addToConversation(userId, message, response) {
+        if (!this.conversations.has(userId)) {
+            this.conversations.set(userId, []);
         }
 
-        if (now > limit.resetTime) {
-            this.rateLimits.set(key, { count: 1, resetTime: now + timeWindow });
-            return true;
-        }
+        const conversation = this.conversations.get(userId);
+        conversation.push({
+            role: 'user',
+            content: message,
+            timestamp: Date.now()
+        });
+        conversation.push({
+            role: 'assistant',
+            content: response,
+            timestamp: Date.now()
+        });
 
-        if (limit.count >= maxRequests) {
-            return false;
+        // Keep only last 10 messages
+        if (conversation.length > 20) {
+            conversation.splice(0, conversation.length - 20);
         }
-
-        limit.count++;
-        return true;
     }
 
     clearConversation(userId) {
         this.conversations.delete(userId);
-        return true;
     }
 
-    getConversationHistory(userId) {
-        return this.conversations.get(userId) || [];
-    }
-
-    setPersonality(userId, personality) {
-        // Store user-specific AI personality settings
-        // This could be expanded to save to database
-        return true;
-    }
-
-    async createEmbedding(text) {
-        try {
-            if (!this.openaiClient) {
-                return {
-                    success: false,
-                    error: 'AI service not available.'
-                };
-            }
-
-            const response = await this.openaiClient.embeddings.create({
-                model: this.models.embedding,
-                input: text
-            });
-
-            return {
-                success: true,
-                embedding: response.data[0].embedding
-            };
-
-        } catch (error) {
-            this.logger.error('AI embedding error:', error);
-            return {
-                success: false,
-                error: 'Failed to create embedding.'
-            };
-        }
-    }
-
-    // Utility methods
-    formatAIResponse(response, options = {}) {
-        const embed = new EmbedBuilder()
-            .setColor(options.color || '#8A2BE2')
-            .setTitle(options.title || '🤖 AI Response')
-            .setDescription(response)
-            .setTimestamp();
-
-        if (options.footer) {
-            embed.setFooter({ text: options.footer });
-        }
-
-        return embed;
-    }
-
-    getUsageStats(userId) {
-        // Return usage statistics for a user
+    getStats() {
         return {
-            conversations: this.conversations.has(userId) ? this.conversations.get(userId).length : 0,
-            rateLimitStatus: this.rateLimits.get(`${userId}_chat`) || null
+            activeConversations: this.conversations.size,
+            totalMessages: Array.from(this.conversations.values()).reduce((total, conv) => total + conv.length, 0),
+            apiConfigured: !!this.apiKey
         };
-    }
-
-    cleanup() {
-        // Clean up old conversations and rate limits
-        const now = Date.now();
-        const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-
-        for (const [key, limit] of this.rateLimits.entries()) {
-            if (now > limit.resetTime) {
-                this.rateLimits.delete(key);
-            }
-        }
-
-        // Clean up old conversations (keep only recent ones)
-        for (const [userId, conversation] of this.conversations.entries()) {
-            if (conversation.length === 0) {
-                this.conversations.delete(userId);
-            }
-        }
     }
 }

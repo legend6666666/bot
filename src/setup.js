@@ -11,6 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const commands = [];
+const commandNames = new Set(); // Track command names to prevent duplicates
 
 async function loadCommands() {
     const commandsPath = join(__dirname, 'commands');
@@ -24,7 +25,14 @@ async function loadCommands() {
             const { default: command } = await import(filePath);
             
             if ('data' in command && 'execute' in command) {
+                // Check for duplicate command names
+                if (commandNames.has(command.data.name)) {
+                    console.log(chalk.yellow(`⚠️  Duplicate command name found: ${command.data.name} in ${file}. Skipping...`));
+                    continue;
+                }
+
                 commands.push(command.data.toJSON());
+                commandNames.add(command.data.name);
                 console.log(chalk.green(`✅ Loaded command: ${command.data.name}`));
             } else {
                 console.log(chalk.yellow(`⚠️  Command ${file} is missing required properties`));
@@ -39,7 +47,22 @@ async function deployCommands() {
     try {
         console.log(chalk.blue(`🚀 Started refreshing ${commands.length} application (/) commands.`));
 
-        // Deploy commands globally or to a specific guild
+        // Clear existing commands first to prevent duplicates
+        if (process.env.GUILD_ID) {
+            console.log(chalk.blue('🧹 Clearing existing guild commands...'));
+            await rest.put(
+                Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+                { body: [] }
+            );
+        } else {
+            console.log(chalk.blue('🧹 Clearing existing global commands...'));
+            await rest.put(
+                Routes.applicationCommands(process.env.CLIENT_ID),
+                { body: [] }
+            );
+        }
+
+        // Deploy new commands
         const data = await rest.put(
             process.env.GUILD_ID 
                 ? Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID)
@@ -57,6 +80,11 @@ async function deployCommands() {
 
     } catch (error) {
         console.error(chalk.red('❌ Error deploying commands:'), error);
+        
+        if (error.code === 50035) {
+            console.log(chalk.yellow('💡 This error usually means there are duplicate command names.'));
+            console.log(chalk.yellow('   The setup script has been updated to handle this automatically.'));
+        }
     }
 }
 
