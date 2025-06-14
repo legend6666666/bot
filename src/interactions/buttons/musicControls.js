@@ -8,67 +8,90 @@ export default {
         const musicManager = interaction.client.music;
         const queue = musicManager.getQueue(guildId);
 
-        switch (action) {
-            case 'play':
-            case 'resume':
-                if (queue.paused) {
-                    musicManager.resume(guildId);
-                } else if (!queue.playing) {
-                    musicManager.startPlaying(guildId);
+        try {
+            switch (action) {
+                case 'play':
+                case 'resume':
+                    if (queue.paused) {
+                        musicManager.resume(guildId);
+                    } else if (!queue.playing) {
+                        musicManager.startPlaying(guildId);
+                    }
+                    break;
+
+                case 'pause':
+                    musicManager.pause(guildId);
+                    break;
+
+                case 'skip':
+                    if (queue.songs.length === 0) {
+                        return interaction.reply({ content: '❌ No songs to skip!', ephemeral: true });
+                    }
+                    musicManager.skip(guildId);
+                    break;
+
+                case 'previous':
+                    if (!musicManager.previous(guildId)) {
+                        return interaction.reply({ content: '❌ No previous songs!', ephemeral: true });
+                    }
+                    break;
+
+                case 'stop':
+                    musicManager.stop(guildId);
+                    break;
+
+                case 'shuffle':
+                    if (!musicManager.shuffle(guildId)) {
+                        return interaction.reply({ content: '❌ Not enough songs to shuffle!', ephemeral: true });
+                    }
+                    break;
+
+                case 'loop':
+                    const newMode = queue.loop === 'off' ? 'song' : queue.loop === 'song' ? 'queue' : 'off';
+                    musicManager.setLoop(guildId, newMode);
+                    break;
+
+                case 'volume':
+                    const direction = interaction.customId.split('_')[3];
+                    const currentVolume = queue.volume;
+                    const newVolume = direction === 'up' ? 
+                        Math.min(100, currentVolume + 10) : 
+                        Math.max(0, currentVolume - 10);
+                    musicManager.setVolume(guildId, newVolume);
+                    break;
+
+                case 'queue':
+                    return this.showQueue(interaction, queue);
+            }
+
+            // Update the embed with new status
+            const updatedQueue = musicManager.getQueue(guildId);
+            const embed = this.createNowPlayingEmbed(updatedQueue);
+            const controls = musicManager.createMusicControls(updatedQueue);
+            
+            await interaction.update({ embeds: [embed], components: [controls] });
+        } catch (error) {
+            console.error('Music control error:', error);
+            try {
+                await interaction.reply({ 
+                    content: '❌ An error occurred while controlling music playback.', 
+                    ephemeral: true 
+                });
+            } catch (replyError) {
+                if (replyError.code === 40060) { // Interaction already acknowledged
+                    try {
+                        await interaction.followUp({ 
+                            content: '❌ An error occurred while controlling music playback.', 
+                            ephemeral: true 
+                        });
+                    } catch (followUpError) {
+                        console.error('Failed to send music control error message:', followUpError);
+                    }
+                } else {
+                    console.error('Failed to send music control error message:', replyError);
                 }
-                break;
-
-            case 'pause':
-                musicManager.pause(guildId);
-                break;
-
-            case 'skip':
-                if (queue.songs.length === 0) {
-                    return interaction.reply({ content: '❌ No songs to skip!', ephemeral: true });
-                }
-                musicManager.skip(guildId);
-                break;
-
-            case 'previous':
-                if (!musicManager.previous(guildId)) {
-                    return interaction.reply({ content: '❌ No previous songs!', ephemeral: true });
-                }
-                break;
-
-            case 'stop':
-                musicManager.stop(guildId);
-                break;
-
-            case 'shuffle':
-                if (!musicManager.shuffle(guildId)) {
-                    return interaction.reply({ content: '❌ Not enough songs to shuffle!', ephemeral: true });
-                }
-                break;
-
-            case 'loop':
-                const newMode = queue.loop === 'off' ? 'song' : queue.loop === 'song' ? 'queue' : 'off';
-                musicManager.setLoop(guildId, newMode);
-                break;
-
-            case 'volume':
-                const direction = interaction.customId.split('_')[3];
-                const currentVolume = queue.volume;
-                const newVolume = direction === 'up' ? 
-                    Math.min(100, currentVolume + 10) : 
-                    Math.max(0, currentVolume - 10);
-                musicManager.setVolume(guildId, newVolume);
-                break;
-
-            case 'queue':
-                return this.showQueue(interaction, queue);
+            }
         }
-
-        // Update the embed with new status
-        const updatedQueue = musicManager.getQueue(guildId);
-        const embed = this.createNowPlayingEmbed(updatedQueue);
-        const controls = musicManager.createMusicControls(updatedQueue);
-        
-        await interaction.update({ embeds: [embed], components: controls });
     },
 
     createNowPlayingEmbed(queue) {
@@ -93,7 +116,7 @@ export default {
                 { name: '⏸️ Status', value: queue.paused ? 'Paused' : 'Playing', inline: true }
             )
             .setThumbnail(queue.currentSong.thumbnail)
-            .setFooter({ text: `Requested by ${queue.currentSong.requestedBy?.username}` })
+            .setFooter({ text: `Requested by ${queue.currentSong.requestedBy?.username || 'Unknown'}` })
             .setTimestamp();
     },
 
@@ -118,7 +141,7 @@ export default {
             const position = index + 1;
             const current = index === 0 ? '**[NOW PLAYING]** ' : `**${position}.** `;
             return `${current}[${song.title}](${song.url})\n` +
-                   `👤 ${song.author} • ⏱️ ${song.duration} • 👤 ${song.requestedBy?.username}`;
+                   `👤 ${song.author || 'Unknown'} • ⏱️ ${song.duration} • 👤 ${song.requestedBy?.username || 'Unknown'}`;
         }).join('\n\n');
 
         embed.addFields({ name: 'Songs', value: queueList });
@@ -127,6 +150,17 @@ export default {
             embed.setFooter({ text: `And ${queue.songs.length - 10} more songs...` });
         }
 
-        await interaction.reply({ embeds: [embed], ephemeral: true });
+        try {
+            await interaction.reply({ embeds: [embed], ephemeral: true });
+        } catch (error) {
+            console.error('Error showing queue:', error);
+            if (error.code === 40060) { // Interaction already acknowledged
+                try {
+                    await interaction.followUp({ embeds: [embed], ephemeral: true });
+                } catch (followUpError) {
+                    console.error('Failed to follow up with queue:', followUpError);
+                }
+            }
+        }
     }
 };

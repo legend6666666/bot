@@ -54,25 +54,22 @@ export class MusicManager {
         return this.queues.get(guildId);
     }
 
-    async play(interaction, query) {
+    async play(interaction, query, options = {}) {
         const member = interaction.member;
         const voiceChannel = member.voice.channel;
 
         if (!voiceChannel) {
-            return interaction.reply({
+            return interaction.editReply({
                 embeds: [new EmbedBuilder()
                     .setColor('#FF0000')
                     .setDescription('❌ You need to be in a voice channel to play music!')
-                ],
-                ephemeral: true
+                ]
             });
         }
 
         const queue = this.getQueue(interaction.guild.id);
         queue.voiceChannel = voiceChannel;
         queue.textChannel = interaction.channel;
-
-        await interaction.deferReply();
 
         try {
             let songs = [];
@@ -145,12 +142,7 @@ export class MusicManager {
 
         } catch (error) {
             console.error('Error playing music:', error);
-            return interaction.editReply({
-                embeds: [new EmbedBuilder()
-                    .setColor('#FF0000')
-                    .setDescription('❌ An error occurred while trying to play the song!')
-                ]
-            });
+            throw error; // Rethrow to be handled by the command
         }
     }
 
@@ -252,6 +244,16 @@ export class MusicManager {
         } catch (error) {
             console.error('Error searching song:', error);
             return null;
+        }
+    }
+
+    // Method for autocomplete to use
+    async searchSongs(query, limit = 10) {
+        try {
+            return await yts.search(query, { limit, type: 'video' });
+        } catch (error) {
+            console.error('Error searching songs for autocomplete:', error);
+            return [];
         }
     }
 
@@ -589,36 +591,7 @@ export class MusicManager {
                     .setEmoji('📋')
             );
 
-        const row2 = new ActionRowBuilder()
-            .addComponents(
-                new ButtonBuilder()
-                    .setCustomId('music_control_shuffle')
-                    .setLabel('Shuffle')
-                    .setStyle(ButtonStyle.Secondary)
-                    .setEmoji('🔀'),
-                new ButtonBuilder()
-                    .setCustomId('music_control_loop')
-                    .setLabel(`Loop: ${queue.loop}`)
-                    .setStyle(queue.loop === 'off' ? ButtonStyle.Secondary : ButtonStyle.Success)
-                    .setEmoji('🔄'),
-                new ButtonBuilder()
-                    .setCustomId('music_control_volume_down')
-                    .setLabel('Vol-')
-                    .setStyle(ButtonStyle.Secondary)
-                    .setEmoji('🔉'),
-                new ButtonBuilder()
-                    .setCustomId('music_control_volume_up')
-                    .setLabel('Vol+')
-                    .setStyle(ButtonStyle.Secondary)
-                    .setEmoji('🔊'),
-                new ButtonBuilder()
-                    .setCustomId('music_control_filters')
-                    .setLabel('Filters')
-                    .setStyle(ButtonStyle.Secondary)
-                    .setEmoji('🎛️')
-            );
-
-        return [row1, row2];
+        return row1;
     }
 
     calculateTotalDuration(songs) {

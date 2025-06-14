@@ -320,22 +320,16 @@ export class AnalyticsManager {
                 const userAgent = event.data.userAgent || null;
                 const data = JSON.stringify(event.data);
 
-                // Don't include id in the INSERT statement - let SQLite auto-generate it
-                await this.database.db.run(
-                    `INSERT INTO analytics_events 
-                     (event_type, event_name, user_id, guild_id, session_id, ip_address, user_agent, data, timestamp) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        event.event_type,
-                        event.event_name,
-                        userId,
-                        guildId,
-                        sessionId,
-                        ipAddress,
-                        userAgent,
-                        data,
-                        new Date(event.timestamp).toISOString()
-                    ]
+                // Use the database's addAnalyticsEvent method
+                await this.database.addAnalyticsEvent(
+                    event.event_type,
+                    event.event_name,
+                    userId,
+                    guildId,
+                    data,
+                    sessionId,
+                    ipAddress,
+                    userAgent
                 );
             }
         } catch (error) {
@@ -346,10 +340,7 @@ export class AnalyticsManager {
     async getStoredEvents(limit = 1000, offset = 0) {
         try {
             if (this.database && this.database.db) {
-                const events = await this.database.db.all(
-                    'SELECT * FROM analytics_events ORDER BY timestamp DESC LIMIT ? OFFSET ?',
-                    [limit, offset]
-                );
+                const events = await this.database.getAnalyticsEvents(null, limit, offset);
                 
                 return events.map(event => ({
                     ...event,

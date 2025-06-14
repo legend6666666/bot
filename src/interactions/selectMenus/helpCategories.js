@@ -42,7 +42,23 @@ export default {
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
 
-        await interaction.update({ embeds: [embed], components: [row] });
+        try {
+            await interaction.update({ embeds: [embed], components: [row] });
+        } catch (error) {
+            console.error('Error updating help category interaction:', error);
+            // If the interaction has expired, try to send a new message
+            if (error.code === 40060) { // Interaction has already been acknowledged
+                try {
+                    await interaction.followUp({ 
+                        embeds: [embed], 
+                        components: [row],
+                        ephemeral: true
+                    });
+                } catch (followUpError) {
+                    console.error('Failed to follow up with help category:', followUpError);
+                }
+            }
+        }
     },
 
     getCommandsByCategory(category, client) {

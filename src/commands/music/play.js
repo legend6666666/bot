@@ -26,6 +26,7 @@ export default {
         const addToTop = interaction.options.getBoolean('top') || false;
         
         try {
+            await interaction.deferReply();
             await interaction.client.music.play(interaction, query, { shuffle, addToTop });
         } catch (error) {
             console.error('Music play error:', error);
@@ -38,7 +39,7 @@ export default {
                 .setTimestamp();
 
             try {
-                // Always use editReply since the interaction should be deferred by the music manager
+                // Always use editReply since the interaction should be deferred
                 await interaction.editReply({ embeds: [errorEmbed] });
             } catch (replyError) {
                 console.error('Failed to send music error message:', replyError);
@@ -54,11 +55,10 @@ export default {
         }
 
         try {
-            const yts = await import('youtube-sr');
-            const results = await yts.default.search(focusedValue, { limit: 10, type: 'video' });
+            const results = await interaction.client.music.searchSongs(focusedValue, 10);
             
             const choices = results.map(video => ({
-                name: `${video.title} - ${video.channel?.name}`.slice(0, 100),
+                name: `${video.title.slice(0, 80)}${video.title.length > 80 ? '...' : ''} - ${video.author || 'Unknown'}`.slice(0, 100),
                 value: video.url
             }));
 
