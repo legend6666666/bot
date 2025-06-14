@@ -266,6 +266,20 @@ export class Database {
                 execution_time INTEGER,
                 error_message TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )`,
+
+            // Analytics events table
+            `CREATE TABLE IF NOT EXISTS analytics_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                event_name TEXT NOT NULL,
+                user_id TEXT,
+                guild_id TEXT,
+                data TEXT DEFAULT '{}',
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                session_id TEXT,
+                ip_address TEXT,
+                user_agent TEXT
             )`
         ];
 
@@ -308,7 +322,14 @@ export class Database {
 
             // Game indexes
             'CREATE INDEX IF NOT EXISTS idx_game_stats_user ON game_stats(user_id)',
-            'CREATE INDEX IF NOT EXISTS idx_game_stats_game ON game_stats(game)'
+            'CREATE INDEX IF NOT EXISTS idx_game_stats_game ON game_stats(game)',
+
+            // Analytics indexes
+            'CREATE INDEX IF NOT EXISTS idx_analytics_events_type ON analytics_events(event_type)',
+            'CREATE INDEX IF NOT EXISTS idx_analytics_events_name ON analytics_events(event_name)',
+            'CREATE INDEX IF NOT EXISTS idx_analytics_events_user ON analytics_events(user_id)',
+            'CREATE INDEX IF NOT EXISTS idx_analytics_events_guild ON analytics_events(guild_id)',
+            'CREATE INDEX IF NOT EXISTS idx_analytics_events_timestamp ON analytics_events(timestamp)'
         ];
 
         for (const index of indexes) {
@@ -410,6 +431,27 @@ export class Database {
         await this.updateUser(userId, { coins: balanceAfter });
     }
 
+    // Analytics operations
+    async addAnalyticsEvent(eventType, eventName, userId = null, guildId = null, data = {}, sessionId = null, ipAddress = null, userAgent = null) {
+        await this.db.run(
+            'INSERT INTO analytics_events (event_type, event_name, user_id, guild_id, data, session_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [eventType, eventName, userId, guildId, JSON.stringify(data), sessionId, ipAddress, userAgent]
+        );
+    }
+
+    async getAnalyticsEvents(eventType = null, limit = 100, offset = 0) {
+        if (eventType) {
+            return await this.db.all(
+                'SELECT * FROM analytics_events WHERE event_type = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?',
+                [eventType, limit, offset]
+            );
+        }
+        return await this.db.all(
+            'SELECT * FROM analytics_events ORDER BY timestamp DESC LIMIT ? OFFSET ?',
+            [limit, offset]
+        );
+    }
+
     // Leaderboard operations
     async getLeaderboard(type = 'coins', limit = 10, guildId = null) {
         let query = '';
@@ -504,7 +546,8 @@ export class Database {
                 (SELECT COUNT(*) FROM transactions) as total_transactions,
                 (SELECT COUNT(*) FROM command_usage) as total_commands,
                 (SELECT COUNT(*) FROM tickets) as total_tickets,
-                (SELECT COUNT(*) FROM playlists) as total_playlists
+                (SELECT COUNT(*) FROM playlists) as total_playlists,
+                (SELECT COUNT(*) FROM analytics_events) as total_analytics_events
         `);
         
         return stats;
