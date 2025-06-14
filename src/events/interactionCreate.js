@@ -62,7 +62,7 @@ export default {
 
         // Handle button interactions
         else if (interaction.isButton()) {
-            const buttonId = interaction.customId.split('_')[0] + '_' + interaction.customId.split('_')[1];
+            const buttonId = interaction.customId.split('_')[0];
             const button = interaction.client.buttons.get(buttonId);
 
             if (button) {
@@ -95,7 +95,7 @@ export default {
 
         // Handle modal interactions
         else if (interaction.isModalSubmit()) {
-            const modalId = interaction.customId.split('_')[0] + '_' + interaction.customId.split('_')[1];
+            const modalId = interaction.customId.split('_')[0];
             const modal = interaction.client.modals.get(modalId);
 
             if (modal) {

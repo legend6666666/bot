@@ -260,10 +260,22 @@ export class BotCore {
             await this.initializeAllManagers();
             
             // Start web server
-            await this.webServer.start();
+            try {
+                await this.webServer.start();
+            } catch (error) {
+                this.logger.error('Failed to start web server:', error);
+                // Continue without web server
+            }
             
             // Start monitoring
-            await this.monitoring.start();
+            try {
+                if (this.monitoring && typeof this.monitoring.start === 'function') {
+                    await this.monitoring.start();
+                }
+            } catch (error) {
+                this.logger.error('Failed to start monitoring:', error);
+                // Continue without monitoring
+            }
             
             // Setup error handling
             this.setupErrorHandling();
@@ -401,6 +413,12 @@ export class BotCore {
 
     async loadEvents() {
         const eventsPath = join(__dirname, '../events');
+        if (!existsSync(eventsPath)) {
+            this.logger.warn('Events directory not found, skipping event loading');
+            this.addInitStep('Events', 'No events loaded (directory not found)');
+            return;
+        }
+        
         const eventFiles = readdirSync(eventsPath).filter(file => file.endsWith('.js'));
         let eventCount = 0;
 
@@ -429,7 +447,11 @@ export class BotCore {
 
     async loadInteractions() {
         const interactionsPath = join(__dirname, '../interactions');
-        if (!existsSync(interactionsPath)) return;
+        if (!existsSync(interactionsPath)) {
+            this.logger.warn('Interactions directory not found, skipping interaction loading');
+            this.addInitStep('Interactions', 'No interactions loaded (directory not found)');
+            return;
+        }
 
         const interactionFolders = readdirSync(interactionsPath);
         let interactionCount = 0;
@@ -445,6 +467,11 @@ export class BotCore {
                     const filePath = pathToFileURL(join(folderPath, file)).href;
                     const { default: interaction } = await import(filePath);
                     
+                    if (!interaction || !interaction.customId) {
+                        this.logger.warn(`Interaction ${file} is missing customId property`);
+                        continue;
+                    }
+                    
                     switch (folder) {
                         case 'buttons':
                             this.client.buttons.set(interaction.customId, interaction);
@@ -456,10 +483,14 @@ export class BotCore {
                             this.client.modals.set(interaction.customId, interaction);
                             break;
                         case 'contextMenus':
-                            this.client.contextMenus.set(interaction.data.name, interaction);
+                            if (interaction.data?.name) {
+                                this.client.contextMenus.set(interaction.data.name, interaction);
+                            }
                             break;
                         case 'autocomplete':
-                            this.client.autocomplete.set(interaction.name, interaction);
+                            if (interaction.name) {
+                                this.client.autocomplete.set(interaction.name, interaction);
+                            }
                             break;
                     }
                     
@@ -500,12 +531,27 @@ export class BotCore {
     setupErrorHandling() {
         process.on('uncaughtException', (error) => {
             this.logger.critical('Uncaught Exception:', error);
-            this.notifications?.sendErrorNotification(error, { type: 'uncaughtException' });
+            if (this.notifications) {
+                try {
+                    this.notifications.sendErrorNotification(error, { type: 'uncaughtException' });
+                } catch (err) {
+                    this.logger.error('Failed to send error notification:', err);
+                }
+            }
         });
 
         process.on('unhandledRejection', (reason, promise) => {
             this.logger.critical('Unhandled Rejection at:', promise, 'reason:', reason);
-            this.notifications?.sendErrorNotification(new Error(reason), { type: 'unhandledRejection' });
+            if (this.notifications) {
+                try {
+                    this.notifications.sendErrorNotification(
+                        reason instanceof Error ? reason : new Error(String(reason)), 
+                        { type: 'unhandledRejection' }
+                    );
+                } catch (err) {
+                    this.logger.error('Failed to send error notification:', err);
+                }
+            }
         });
 
         process.on('warning', (warning) => {
@@ -520,7 +566,9 @@ export class BotCore {
             this.logger.info(`Received ${signal}, shutting down gracefully...`);
             
             try {
-                await this.notifications?.sendShutdownNotification();
+                if (this.notifications) {
+                    await this.notifications.sendShutdownNotification();
+                }
                 await this.shutdown();
                 this.logger.success('Bot shutdown completed successfully');
                 process.exit(0);
@@ -547,7 +595,7 @@ export class BotCore {
             }
             
             // Stop monitoring
-            if (this.monitoring) {
+            if (this.monitoring && typeof this.monitoring.stop === 'function') {
                 await this.monitoring.stop();
             }
             
@@ -557,7 +605,7 @@ export class BotCore {
             }
             
             // Close cache connections
-            if (this.cache) {
+            if (this.cache && typeof this.cache.close === 'function') {
                 await this.cache.close();
             }
             
@@ -578,11 +626,11 @@ export class BotCore {
             version: this.version,
             environment: this.environment,
             uptime,
-            guilds: this.client.guilds.cache.size,
-            users: this.client.users.cache.size,
-            commands: this.client.commands.size,
+            guilds: this.client?.guilds?.cache?.size || 0,
+            users: this.client?.users?.cache?.size || 0,
+            commands: this.client?.commands?.size || 0,
             memory: process.memoryUsage(),
-            ping: this.client.ws.ping,
+            ping: this.client?.ws?.ping || 0,
             isInitialized: this.isInitialized,
             initializationSteps: this.initializationSteps.length
         };
