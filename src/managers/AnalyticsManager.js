@@ -30,7 +30,6 @@ export class AnalyticsManager {
     // Event tracking
     trackEvent(eventType, eventName, data = {}) {
         const eventData = {
-            id: this.generateId(),
             event_type: eventType,
             event_name: eventName,
             data,
@@ -321,12 +320,12 @@ export class AnalyticsManager {
                 const userAgent = event.data.userAgent || null;
                 const data = JSON.stringify(event.data);
 
+                // Don't include id in the INSERT statement - let SQLite auto-generate it
                 await this.database.db.run(
                     `INSERT INTO analytics_events 
-                     (id, event_type, event_name, user_id, guild_id, session_id, ip_address, user_agent, data, timestamp) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                     (event_type, event_name, user_id, guild_id, session_id, ip_address, user_agent, data, timestamp) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
-                        event.id,
                         event.event_type,
                         event.event_name,
                         userId,
@@ -335,7 +334,7 @@ export class AnalyticsManager {
                         ipAddress,
                         userAgent,
                         data,
-                        event.timestamp
+                        new Date(event.timestamp).toISOString()
                     ]
                 );
             }

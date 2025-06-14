@@ -88,6 +88,9 @@ export class Database {
             // Create all tables
             await this.createTables();
             
+            // Update existing tables if needed
+            await this.updateTables();
+            
             // Create indexes
             await this.createIndexes();
             
@@ -288,6 +291,31 @@ export class Database {
         }
 
         this.logger.debug('All database tables created');
+    }
+
+    async updateTables() {
+        try {
+            // Check if analytics_events table has the data column
+            const columns = await this.db.all("PRAGMA table_info(analytics_events)");
+            const hasDataColumn = columns.some(col => col.name === 'data');
+            
+            if (!hasDataColumn) {
+                this.logger.info('Adding missing data column to analytics_events table');
+                await this.db.exec('ALTER TABLE analytics_events ADD COLUMN data TEXT DEFAULT "{}"');
+            }
+            
+            // Check for other missing columns that might exist in old schemas
+            const hasTimestampColumn = columns.some(col => col.name === 'timestamp');
+            if (!hasTimestampColumn) {
+                this.logger.info('Adding missing timestamp column to analytics_events table');
+                await this.db.exec('ALTER TABLE analytics_events ADD COLUMN timestamp DATETIME DEFAULT CURRENT_TIMESTAMP');
+            }
+            
+            this.logger.debug('Database table updates completed');
+        } catch (error) {
+            this.logger.error('Error updating database tables:', error);
+            // Don't throw here as this is not critical for basic functionality
+        }
     }
 
     async createIndexes() {
