@@ -319,11 +319,11 @@ export class AnalyticsManager {
                 const sessionId = event.data.sessionId || null;
                 const ipAddress = event.data.ipAddress || null;
                 const userAgent = event.data.userAgent || null;
-                const metadata = JSON.stringify(event.data);
+                const data = JSON.stringify(event.data);
 
                 await this.database.db.run(
                     `INSERT INTO analytics_events 
-                     (id, event_type, event_name, user_id, guild_id, session_id, ip_address, user_agent, metadata, timestamp) 
+                     (id, event_type, event_name, user_id, guild_id, session_id, ip_address, user_agent, data, timestamp) 
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         event.id,
@@ -334,7 +334,7 @@ export class AnalyticsManager {
                         sessionId,
                         ipAddress,
                         userAgent,
-                        metadata,
+                        data,
                         event.timestamp
                     ]
                 );
@@ -354,7 +354,7 @@ export class AnalyticsManager {
                 
                 return events.map(event => ({
                     ...event,
-                    data: event.metadata ? JSON.parse(event.metadata) : {}
+                    data: event.data ? JSON.parse(event.data) : {}
                 }));
             }
         } catch (error) {
