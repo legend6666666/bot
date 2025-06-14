@@ -17,6 +17,7 @@ export class Database {
         this.backupPath = join(this.dbPath, 'backups');
         this.isInitialized = false;
         this.isInitializing = false;
+        this.inMemoryMode = false;
     }
 
     async initialize() {
@@ -41,9 +42,11 @@ export class Database {
             // Ensure directories exist
             if (!existsSync(this.dbPath)) {
                 mkdirSync(this.dbPath, { recursive: true });
+                this.logger.info(`Created database directory: ${this.dbPath}`);
             }
             if (!existsSync(this.backupPath)) {
                 mkdirSync(this.backupPath, { recursive: true });
+                this.logger.info(`Created backup directory: ${this.backupPath}`);
             }
 
             // Close any existing connection first
@@ -58,6 +61,8 @@ export class Database {
 
             // Open database connection with retry logic
             let retries = 3;
+            let lastError = null;
+            
             while (retries > 0) {
                 try {
                     this.db = await open({
@@ -65,25 +70,40 @@ export class Database {
                         driver: sqlite3.Database,
                         mode: sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE
                     });
+                    
+                    // Configure database settings with timeout
+                    await this.db.exec('PRAGMA busy_timeout = 30000'); // 30 second timeout
+                    await this.db.exec('PRAGMA journal_mode = DELETE'); // Use DELETE instead of WAL mode
+                    await this.db.exec('PRAGMA foreign_keys = ON');
+                    await this.db.exec('PRAGMA synchronous = NORMAL');
+                    await this.db.exec('PRAGMA cache_size = 1000');
+                    await this.db.exec('PRAGMA temp_store = MEMORY');
+                    
                     break;
                 } catch (error) {
+                    lastError = error;
+                    
                     if (error.code === 'SQLITE_BUSY' && retries > 1) {
                         this.logger.warn(`Database busy, retrying... (${retries - 1} attempts left)`);
                         await new Promise(resolve => setTimeout(resolve, 1000));
                         retries--;
+                    } else if (error.code === 'SQLITE_CANTOPEN' || 
+                              error.message.includes('disk I/O error') || 
+                              error.message.includes('SQLITE_IOERR')) {
+                        this.logger.warn('Database file access error, falling back to in-memory database');
+                        await this.initializeInMemoryDatabase();
+                        break;
                     } else {
                         throw error;
                     }
                 }
             }
-
-            // Configure database settings with timeout
-            await this.db.exec('PRAGMA busy_timeout = 30000'); // 30 second timeout
-            await this.db.exec('PRAGMA journal_mode = WAL'); // Use WAL instead of DELETE mode
-            await this.db.exec('PRAGMA foreign_keys = ON');
-            await this.db.exec('PRAGMA synchronous = NORMAL');
-            await this.db.exec('PRAGMA cache_size = 1000');
-            await this.db.exec('PRAGMA temp_store = MEMORY');
+            
+            // If we exhausted retries, try in-memory mode
+            if (retries === 0 && lastError) {
+                this.logger.warn('Database connection retries exhausted, falling back to in-memory database');
+                await this.initializeInMemoryDatabase();
+            }
 
             // Create all tables
             await this.createTables();
@@ -105,10 +125,34 @@ export class Database {
             
         } catch (error) {
             this.logger.error('Failed to initialize database:', error);
-            throw error;
+            
+            // Try to fall back to in-memory database as a last resort
+            try {
+                this.logger.warn('Attempting to fall back to in-memory database after initialization error');
+                await this.initializeInMemoryDatabase();
+                this.isInitialized = true;
+                this.logger.success('In-memory database initialized successfully');
+            } catch (memoryError) {
+                this.logger.error('Failed to initialize in-memory database:', memoryError);
+                throw error;
+            }
         } finally {
             this.isInitializing = false;
         }
+    }
+
+    async initializeInMemoryDatabase() {
+        this.db = await open({
+            filename: ':memory:',
+            driver: sqlite3.Database
+        });
+        
+        this.inMemoryMode = true;
+        this.logger.warn('Running in in-memory database mode. Data will not persist between restarts!');
+        
+        // Configure in-memory database settings
+        await this.db.exec('PRAGMA foreign_keys = ON');
+        await this.db.exec('PRAGMA cache_size = 2000');
     }
 
     async createTables() {
@@ -287,7 +331,12 @@ export class Database {
         ];
 
         for (const table of tables) {
-            await this.db.exec(table);
+            try {
+                await this.db.exec(table);
+            } catch (error) {
+                this.logger.error(`Error creating table: ${error.message}`);
+                // Continue with other tables even if one fails
+            }
         }
 
         this.logger.debug('All database tables created');
@@ -476,7 +525,12 @@ export class Database {
         ];
 
         for (const index of indexes) {
-            await this.db.exec(index);
+            try {
+                await this.db.exec(index);
+            } catch (error) {
+                this.logger.error(`Error creating index: ${error.message}`);
+                // Continue with other indexes even if one fails
+            }
         }
 
         this.logger.debug('All database indexes created');
@@ -505,7 +559,12 @@ export class Database {
         ];
 
         for (const trigger of triggers) {
-            await this.db.exec(trigger);
+            try {
+                await this.db.exec(trigger);
+            } catch (error) {
+                this.logger.error(`Error creating trigger: ${error.message}`);
+                // Continue with other triggers even if one fails
+            }
         }
 
         this.logger.debug('All database triggers created');
@@ -513,65 +572,115 @@ export class Database {
 
     // User operations
     async getUser(userId) {
-        let user = await this.db.get('SELECT * FROM users WHERE id = ?', userId);
-        if (!user) {
-            await this.db.run('INSERT INTO users (id) VALUES (?)', userId);
-            user = await this.db.get('SELECT * FROM users WHERE id = ?', userId);
+        try {
+            let user = await this.db.get('SELECT * FROM users WHERE id = ?', userId);
+            if (!user) {
+                await this.db.run('INSERT INTO users (id) VALUES (?)', userId);
+                user = await this.db.get('SELECT * FROM users WHERE id = ?', userId);
+            }
+            return user;
+        } catch (error) {
+            this.logger.error(`Error getting user ${userId}:`, error);
+            // Return a default user object if database fails
+            return {
+                id: userId,
+                coins: 0,
+                bank: 0,
+                xp: 0,
+                level: 1,
+                daily_claimed: 0,
+                work_cooldown: 0,
+                crime_cooldown: 0,
+                rep: 0
+            };
         }
-        return user;
     }
 
     async updateUser(userId, data) {
-        const keys = Object.keys(data);
-        const values = Object.values(data);
-        const setClause = keys.map(key => `${key} = ?`).join(', ');
-        
-        await this.db.run(`UPDATE users SET ${setClause} WHERE id = ?`, [...values, userId]);
+        try {
+            const keys = Object.keys(data);
+            const values = Object.values(data);
+            const setClause = keys.map(key => `${key} = ?`).join(', ');
+            
+            await this.db.run(`UPDATE users SET ${setClause} WHERE id = ?`, [...values, userId]);
+            return true;
+        } catch (error) {
+            this.logger.error(`Error updating user ${userId}:`, error);
+            return false;
+        }
     }
 
     // Guild operations
     async getGuild(guildId) {
-        let guild = await this.db.get('SELECT * FROM guilds WHERE id = ?', guildId);
-        if (!guild) {
-            await this.db.run('INSERT INTO guilds (id) VALUES (?)', guildId);
-            guild = await this.db.get('SELECT * FROM guilds WHERE id = ?', guildId);
+        try {
+            let guild = await this.db.get('SELECT * FROM guilds WHERE id = ?', guildId);
+            if (!guild) {
+                await this.db.run('INSERT INTO guilds (id) VALUES (?)', guildId);
+                guild = await this.db.get('SELECT * FROM guilds WHERE id = ?', guildId);
+            }
+            return guild;
+        } catch (error) {
+            this.logger.error(`Error getting guild ${guildId}:`, error);
+            // Return a default guild object if database fails
+            return {
+                id: guildId,
+                prefix: '!',
+                auto_mod: 0,
+                level_system: 1,
+                economy_system: 1
+            };
         }
-        return guild;
     }
 
     // Moderation operations
     async addModLog(guildId, userId, moderatorId, action, reason, duration = null) {
-        const result = await this.db.run(
-            'INSERT INTO mod_logs (guild_id, user_id, moderator_id, action, reason, duration) VALUES (?, ?, ?, ?, ?, ?)',
-            [guildId, userId, moderatorId, action, reason, duration]
-        );
-        return result.lastID;
+        try {
+            const result = await this.db.run(
+                'INSERT INTO mod_logs (guild_id, user_id, moderator_id, action, reason, duration) VALUES (?, ?, ?, ?, ?, ?)',
+                [guildId, userId, moderatorId, action, reason, duration]
+            );
+            return result.lastID;
+        } catch (error) {
+            this.logger.error('Error adding mod log:', error);
+            return null;
+        }
     }
 
     async getModLogs(guildId, userId = null, limit = 10) {
-        if (userId) {
+        try {
+            if (userId) {
+                return await this.db.all(
+                    'SELECT * FROM mod_logs WHERE guild_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ?',
+                    [guildId, userId, limit]
+                );
+            }
             return await this.db.all(
-                'SELECT * FROM mod_logs WHERE guild_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ?',
-                [guildId, userId, limit]
+                'SELECT * FROM mod_logs WHERE guild_id = ? ORDER BY created_at DESC LIMIT ?',
+                [guildId, limit]
             );
+        } catch (error) {
+            this.logger.error('Error getting mod logs:', error);
+            return [];
         }
-        return await this.db.all(
-            'SELECT * FROM mod_logs WHERE guild_id = ? ORDER BY created_at DESC LIMIT ?',
-            [guildId, limit]
-        );
     }
 
     // Economy operations
     async addTransaction(userId, type, amount, description, metadata = {}) {
-        const user = await this.getUser(userId);
-        const balanceAfter = user.coins + amount;
-        
-        await this.db.run(
-            'INSERT INTO transactions (user_id, type, amount, balance_after, description, metadata) VALUES (?, ?, ?, ?, ?, ?)',
-            [userId, type, amount, balanceAfter, description, JSON.stringify(metadata)]
-        );
-        
-        await this.updateUser(userId, { coins: balanceAfter });
+        try {
+            const user = await this.getUser(userId);
+            const balanceAfter = user.coins + amount;
+            
+            await this.db.run(
+                'INSERT INTO transactions (user_id, type, amount, balance_after, description, metadata) VALUES (?, ?, ?, ?, ?, ?)',
+                [userId, type, amount, balanceAfter, description, JSON.stringify(metadata)]
+            );
+            
+            await this.updateUser(userId, { coins: balanceAfter });
+            return true;
+        } catch (error) {
+            this.logger.error('Error adding transaction:', error);
+            return false;
+        }
     }
 
     // Analytics operations
@@ -580,10 +689,14 @@ export class Database {
             // Ensure timestamp is in the correct format
             const timestamp = new Date().toISOString();
             
+            // Ensure data is a string
+            const dataStr = typeof data === 'string' ? data : JSON.stringify(data);
+            
             await this.db.run(
                 'INSERT INTO analytics_events (event_type, event_name, user_id, guild_id, data, timestamp, session_id, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [eventType, eventName, userId, guildId, JSON.stringify(data), timestamp, sessionId, ipAddress, userAgent]
+                [eventType, eventName, userId, guildId, dataStr, timestamp, sessionId, ipAddress, userAgent]
             );
+            return true;
         } catch (error) {
             this.logger.error('Failed to store analytics event:', error);
             throw error;
@@ -591,63 +704,84 @@ export class Database {
     }
 
     async getAnalyticsEvents(eventType = null, limit = 100, offset = 0) {
-        if (eventType) {
+        try {
+            if (eventType) {
+                return await this.db.all(
+                    'SELECT * FROM analytics_events WHERE event_type = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?',
+                    [eventType, limit, offset]
+                );
+            }
             return await this.db.all(
-                'SELECT * FROM analytics_events WHERE event_type = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?',
-                [eventType, limit, offset]
+                'SELECT * FROM analytics_events ORDER BY timestamp DESC LIMIT ? OFFSET ?',
+                [limit, offset]
             );
+        } catch (error) {
+            this.logger.error('Error getting analytics events:', error);
+            return [];
         }
-        return await this.db.all(
-            'SELECT * FROM analytics_events ORDER BY timestamp DESC LIMIT ? OFFSET ?',
-            [limit, offset]
-        );
     }
 
     // Leaderboard operations
     async getLeaderboard(type = 'coins', limit = 10, guildId = null) {
-        let query = '';
-        let params = [limit];
-        
-        switch (type) {
-            case 'level':
-                query = 'SELECT id, username, level, xp FROM users ORDER BY level DESC, xp DESC LIMIT ?';
-                break;
-            case 'coins':
-                query = 'SELECT id, username, coins, bank FROM users ORDER BY (coins + bank) DESC LIMIT ?';
-                break;
-            case 'xp':
-                query = 'SELECT id, username, xp, level FROM users ORDER BY xp DESC LIMIT ?';
-                break;
-            default:
-                query = 'SELECT id, username, coins, bank FROM users ORDER BY (coins + bank) DESC LIMIT ?';
+        try {
+            let query = '';
+            let params = [limit];
+            
+            switch (type) {
+                case 'level':
+                    query = 'SELECT id, username, level, xp FROM users ORDER BY level DESC, xp DESC LIMIT ?';
+                    break;
+                case 'coins':
+                    query = 'SELECT id, username, coins, bank FROM users ORDER BY (coins + bank) DESC LIMIT ?';
+                    break;
+                case 'xp':
+                    query = 'SELECT id, username, xp, level FROM users ORDER BY xp DESC LIMIT ?';
+                    break;
+                default:
+                    query = 'SELECT id, username, coins, bank FROM users ORDER BY (coins + bank) DESC LIMIT ?';
+            }
+            
+            return await this.db.all(query, params);
+        } catch (error) {
+            this.logger.error('Error getting leaderboard:', error);
+            return [];
         }
-        
-        return await this.db.all(query, params);
     }
 
     // Analytics operations
     async logCommand(command, userId, guildId, success = true, executionTime = 0, errorMessage = null) {
-        await this.db.run(
-            'INSERT INTO command_usage (command, user_id, guild_id, success, execution_time, error_message) VALUES (?, ?, ?, ?, ?, ?)',
-            [command, userId, guildId, success, executionTime, errorMessage]
-        );
+        try {
+            await this.db.run(
+                'INSERT INTO command_usage (command, user_id, guild_id, success, execution_time, error_message) VALUES (?, ?, ?, ?, ?, ?)',
+                [command, userId, guildId, success, executionTime, errorMessage]
+            );
+            return true;
+        } catch (error) {
+            this.logger.error('Error logging command:', error);
+            return false;
+        }
     }
 
     async getCommandStats(days = 30) {
-        const since = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
-        
-        return await this.db.all(`
-            SELECT 
-                command,
-                COUNT(*) as total_uses,
-                COUNT(CASE WHEN success = 1 THEN 1 END) as successful_uses,
-                COUNT(CASE WHEN success = 0 THEN 1 END) as failed_uses,
-                AVG(execution_time) as avg_execution_time
-            FROM command_usage 
-            WHERE created_at > ?
-            GROUP BY command 
-            ORDER BY total_uses DESC
-        `, [since]);
+        try {
+            const since = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
+            
+            return await this.db.all(`
+                SELECT 
+                    command,
+                    COUNT(*) as total_uses,
+                    COUNT(CASE WHEN success = 1 THEN 1 END) as successful_uses,
+                    COUNT(CASE WHEN success = 0 THEN 1 END) as failed_uses,
+                    AVG(execution_time) as avg_execution_time
+                FROM command_usage 
+                WHERE created_at > ?
+                GROUP BY command 
+                ORDER BY total_uses DESC
+            `, [since]);
+        } catch (error) {
+            this.logger.error('Error getting command stats:', error);
+            return [];
+        }
     }
 
     // Maintenance operations
@@ -655,8 +789,10 @@ export class Database {
         // Vacuum database every 24 hours
         setInterval(async () => {
             try {
-                await this.db.exec('VACUUM');
-                this.logger.debug('Database vacuum completed');
+                if (!this.inMemoryMode) {
+                    await this.db.exec('VACUUM');
+                    this.logger.debug('Database vacuum completed');
+                }
             } catch (error) {
                 this.logger.error('Database vacuum failed:', error);
             }
@@ -675,6 +811,11 @@ export class Database {
 
     async backup() {
         try {
+            if (this.inMemoryMode) {
+                this.logger.warn('Cannot create backup in in-memory mode');
+                return null;
+            }
+            
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const backupFile = join(this.backupPath, `backup-${timestamp}.db`);
             
@@ -689,19 +830,34 @@ export class Database {
     }
 
     async getStats() {
-        const stats = await this.db.get(`
-            SELECT 
-                (SELECT COUNT(*) FROM users) as total_users,
-                (SELECT COUNT(*) FROM guilds) as total_guilds,
-                (SELECT COUNT(*) FROM mod_logs) as total_mod_actions,
-                (SELECT COUNT(*) FROM transactions) as total_transactions,
-                (SELECT COUNT(*) FROM command_usage) as total_commands,
-                (SELECT COUNT(*) FROM tickets) as total_tickets,
-                (SELECT COUNT(*) FROM playlists) as total_playlists,
-                (SELECT COUNT(*) FROM analytics_events) as total_analytics_events
-        `);
-        
-        return stats;
+        try {
+            const stats = await this.db.get(`
+                SELECT 
+                    (SELECT COUNT(*) FROM users) as total_users,
+                    (SELECT COUNT(*) FROM guilds) as total_guilds,
+                    (SELECT COUNT(*) FROM mod_logs) as total_mod_actions,
+                    (SELECT COUNT(*) FROM transactions) as total_transactions,
+                    (SELECT COUNT(*) FROM command_usage) as total_commands,
+                    (SELECT COUNT(*) FROM tickets) as total_tickets,
+                    (SELECT COUNT(*) FROM playlists) as total_playlists,
+                    (SELECT COUNT(*) FROM analytics_events) as total_analytics_events
+            `);
+            
+            return stats;
+        } catch (error) {
+            this.logger.error('Error getting database stats:', error);
+            return {
+                total_users: 0,
+                total_guilds: 0,
+                total_mod_actions: 0,
+                total_transactions: 0,
+                total_commands: 0,
+                total_tickets: 0,
+                total_playlists: 0,
+                total_analytics_events: 0,
+                in_memory_mode: this.inMemoryMode
+            };
+        }
     }
 
     async close() {
