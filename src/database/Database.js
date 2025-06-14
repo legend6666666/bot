@@ -79,7 +79,7 @@ export class Database {
 
             // Configure database settings with timeout
             await this.db.exec('PRAGMA busy_timeout = 30000'); // 30 second timeout
-            await this.db.exec('PRAGMA journal_mode = DELETE'); // Use DELETE instead of WAL mode
+            await this.db.exec('PRAGMA journal_mode = WAL'); // Use WAL instead of DELETE mode
             await this.db.exec('PRAGMA foreign_keys = ON');
             await this.db.exec('PRAGMA synchronous = NORMAL');
             await this.db.exec('PRAGMA cache_size = 1000');

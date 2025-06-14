@@ -3,6 +3,9 @@ import { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } from 'discord
 export default {
     customId: 'help_category',
     async execute(interaction) {
+        // Immediately defer the interaction to prevent timeout
+        await interaction.deferUpdate();
+
         const category = interaction.values[0];
         const commands = this.getCommandsByCategory(category, interaction.client);
 
@@ -43,7 +46,7 @@ export default {
         const row = new ActionRowBuilder().addComponents(selectMenu);
 
         try {
-            await interaction.update({ embeds: [embed], components: [row] });
+            await interaction.editReply({ embeds: [embed], components: [row] });
         } catch (error) {
             console.error('Error updating help category interaction:', error);
             // If the interaction has expired, try to send a new message

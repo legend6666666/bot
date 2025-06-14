@@ -7,6 +7,7 @@ export class AnalyticsManager {
         this.metrics = new Map();
         this.events = [];
         this.startTime = Date.now();
+        this.useInMemoryOnly = false;
         
         this.initializeMetrics();
         this.startMetricsCollection();
@@ -30,6 +31,7 @@ export class AnalyticsManager {
     // Event tracking
     trackEvent(eventType, eventName, data = {}) {
         const eventData = {
+            id: this.generateId(),
             event_type: eventType,
             event_name: eventName,
             data,
@@ -44,8 +46,19 @@ export class AnalyticsManager {
             this.events.shift();
         }
         
-        // Store in database
-        this.storeEvent(eventData);
+        // Store in database if not in memory-only mode
+        if (!this.useInMemoryOnly) {
+            this.storeEvent(eventData).catch(error => {
+                // If we get a disk I/O error, switch to memory-only mode
+                if (error.message && (error.message.includes('disk I/O error') || 
+                                     error.message.includes('SQLITE_IOERR') ||
+                                     error.message.includes('SQLITE_BUSY') ||
+                                     error.message.includes('SQLITE_CORRUPT'))) {
+                    this.logger.warn('Database I/O error detected, switching to memory-only mode for analytics');
+                    this.useInMemoryOnly = true;
+                }
+            });
+        }
         
         this.logger.debug(`Analytics event: ${eventType}:${eventName}`, data);
     }
@@ -304,14 +317,15 @@ export class AnalyticsManager {
             commandsPerMinute: this.getMetric('commands_executed') / (uptime / 60000),
             errorsPerHour: this.getMetric('errors_occurred') / (uptime / 3600000),
             memoryUsage: process.memoryUsage(),
-            cpuUsage: process.cpuUsage()
+            cpuUsage: process.cpuUsage(),
+            inMemoryMode: this.useInMemoryOnly
         };
     }
 
     // Database operations
     async storeEvent(event) {
         try {
-            if (this.database && this.database.db) {
+            if (this.database && this.database.db && !this.useInMemoryOnly) {
                 // Map event data to match the analytics_events table structure
                 const userId = event.data.userId || null;
                 const guildId = event.data.guildId || null;
@@ -319,39 +333,65 @@ export class AnalyticsManager {
                 const ipAddress = event.data.ipAddress || null;
                 const userAgent = event.data.userAgent || null;
                 const data = JSON.stringify(event.data);
+                const timestamp = new Date(event.timestamp).toISOString();
 
-                // Use the database's addAnalyticsEvent method
-                await this.database.addAnalyticsEvent(
-                    event.event_type,
-                    event.event_name,
-                    userId,
-                    guildId,
-                    data,
-                    sessionId,
-                    ipAddress,
-                    userAgent
-                );
+                try {
+                    // Use the database's addAnalyticsEvent method
+                    await this.database.addAnalyticsEvent(
+                        event.event_type,
+                        event.event_name,
+                        userId,
+                        guildId,
+                        data,
+                        sessionId,
+                        ipAddress,
+                        userAgent
+                    );
+                } catch (error) {
+                    // If we get a database error, log it but don't throw
+                    // This allows the bot to continue functioning even with database issues
+                    this.logger.error('Failed to store analytics event:', error);
+                    
+                    // If it's a disk I/O error, switch to memory-only mode
+                    if (error.message && (error.message.includes('disk I/O error') || 
+                                         error.message.includes('SQLITE_IOERR') ||
+                                         error.message.includes('SQLITE_BUSY') ||
+                                         error.message.includes('SQLITE_CORRUPT'))) {
+                        this.logger.warn('Database I/O error detected, switching to memory-only mode for analytics');
+                        this.useInMemoryOnly = true;
+                    }
+                }
             }
         } catch (error) {
             this.logger.error('Failed to store analytics event:', error);
+            // Don't throw the error to prevent disrupting the bot's operation
         }
     }
 
     async getStoredEvents(limit = 1000, offset = 0) {
         try {
-            if (this.database && this.database.db) {
-                const events = await this.database.getAnalyticsEvents(null, limit, offset);
-                
-                return events.map(event => ({
-                    ...event,
-                    data: event.data ? JSON.parse(event.data) : {}
-                }));
+            if (this.database && this.database.db && !this.useInMemoryOnly) {
+                try {
+                    const events = await this.database.getAnalyticsEvents(null, limit, offset);
+                    
+                    return events.map(event => ({
+                        ...event,
+                        data: event.data ? JSON.parse(event.data) : {}
+                    }));
+                } catch (error) {
+                    this.logger.error('Failed to get stored events:', error);
+                    // If database access fails, fall back to in-memory events
+                    this.useInMemoryOnly = true;
+                    return this.events.slice(-limit);
+                }
             }
+            
+            // If we're in memory-only mode or database isn't available, return in-memory events
+            return this.events.slice(-limit);
         } catch (error) {
             this.logger.error('Failed to get stored events:', error);
+            return [];
         }
-        
-        return [];
     }
 
     // Metrics collection
@@ -382,7 +422,8 @@ export class AnalyticsManager {
                 user: cpuUsage.user,
                 system: cpuUsage.system
             },
-            uptime: process.uptime()
+            uptime: process.uptime(),
+            inMemoryMode: this.useInMemoryOnly
         });
     }
 
@@ -414,7 +455,8 @@ export class AnalyticsManager {
             dailyStats: this.getDailyStats(),
             topCommands: this.getTopCommands(),
             topUsers: this.getTopUsers(),
-            topGuilds: this.getTopGuilds()
+            topGuilds: this.getTopGuilds(),
+            inMemoryMode: this.useInMemoryOnly
         };
         
         switch (format) {
