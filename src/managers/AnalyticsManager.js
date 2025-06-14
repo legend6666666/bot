@@ -28,10 +28,11 @@ export class AnalyticsManager {
     }
 
     // Event tracking
-    trackEvent(event, data = {}) {
+    trackEvent(eventType, eventName, data = {}) {
         const eventData = {
             id: this.generateId(),
-            event,
+            event_type: eventType,
+            event_name: eventName,
             data,
             timestamp: Date.now(),
             date: new Date().toISOString()
@@ -47,7 +48,7 @@ export class AnalyticsManager {
         // Store in database
         this.storeEvent(eventData);
         
-        this.logger.debug(`Analytics event: ${event}`, data);
+        this.logger.debug(`Analytics event: ${eventType}:${eventName}`, data);
     }
 
     // Metric tracking
@@ -78,7 +79,7 @@ export class AnalyticsManager {
         this.incrementMetric('users_served', user.id);
         if (guild) this.incrementMetric('guilds_served', guild.id);
         
-        this.trackEvent('command_executed', {
+        this.trackEvent('command', 'executed', {
             command: command.name,
             userId: user.id,
             guildId: guild?.id,
@@ -96,10 +97,9 @@ export class AnalyticsManager {
     trackUser(user, action, data = {}) {
         this.incrementMetric('users_served', user.id);
         
-        this.trackEvent('user_action', {
+        this.trackEvent('user', action, {
             userId: user.id,
             username: user.username,
-            action,
             ...data
         });
     }
@@ -108,11 +108,10 @@ export class AnalyticsManager {
     trackGuild(guild, action, data = {}) {
         this.incrementMetric('guilds_served', guild.id);
         
-        this.trackEvent('guild_action', {
+        this.trackEvent('guild', action, {
             guildId: guild.id,
             guildName: guild.name,
             memberCount: guild.memberCount,
-            action,
             ...data
         });
     }
@@ -120,13 +119,12 @@ export class AnalyticsManager {
     // Feature-specific analytics
     trackMusic(action, data = {}) {
         this.incrementMetric('music_plays');
-        this.trackEvent('music_action', { action, ...data });
+        this.trackEvent('music', action, data);
     }
 
     trackEconomy(action, amount, userId, data = {}) {
         this.incrementMetric('economy_transactions');
-        this.trackEvent('economy_action', { 
-            action, 
+        this.trackEvent('economy', action, { 
             amount, 
             userId, 
             ...data 
@@ -135,8 +133,7 @@ export class AnalyticsManager {
 
     trackModeration(action, moderator, target, data = {}) {
         this.incrementMetric('moderation_actions');
-        this.trackEvent('moderation_action', {
-            action,
+        this.trackEvent('moderation', action, {
             moderatorId: moderator.id,
             targetId: target.id,
             ...data
@@ -147,24 +144,24 @@ export class AnalyticsManager {
         if (action === 'created') {
             this.incrementMetric('tickets_created');
         }
-        this.trackEvent('ticket_action', { action, userId, ...data });
+        this.trackEvent('ticket', action, { userId, ...data });
     }
 
     trackAI(action, userId, data = {}) {
         this.incrementMetric('ai_requests');
-        this.trackEvent('ai_action', { action, userId, ...data });
+        this.trackEvent('ai', action, { userId, ...data });
     }
 
     trackGame(game, userId, data = {}) {
         this.incrementMetric('games_played');
-        this.trackEvent('game_action', { game, userId, ...data });
+        this.trackEvent('game', 'played', { game, userId, ...data });
     }
 
     // Error tracking
     trackError(error, context = {}) {
         this.incrementMetric('errors_occurred');
         
-        this.trackEvent('error_occurred', {
+        this.trackEvent('error', 'occurred', {
             message: error.message,
             stack: error.stack,
             name: error.name,
@@ -174,7 +171,7 @@ export class AnalyticsManager {
 
     // Performance tracking
     trackPerformance(operation, duration, data = {}) {
-        this.trackEvent('performance_metric', {
+        this.trackEvent('performance', 'metric', {
             operation,
             duration,
             ...data
@@ -185,7 +182,7 @@ export class AnalyticsManager {
     trackAPI(endpoint, method, statusCode, duration, data = {}) {
         this.incrementMetric('api_requests');
         
-        this.trackEvent('api_request', {
+        this.trackEvent('api', 'request', {
             endpoint,
             method,
             statusCode,
@@ -211,8 +208,8 @@ export class AnalyticsManager {
             stats.unshift({
                 hour: new Date(hourStart).toISOString(),
                 events: hourEvents.length,
-                commands: hourEvents.filter(e => e.event === 'command_executed').length,
-                errors: hourEvents.filter(e => e.event === 'error_occurred').length,
+                commands: hourEvents.filter(e => e.event_type === 'command').length,
+                errors: hourEvents.filter(e => e.event_type === 'error').length,
                 users: new Set(hourEvents.map(e => e.data.userId).filter(Boolean)).size
             });
         }
@@ -236,8 +233,8 @@ export class AnalyticsManager {
             stats.unshift({
                 date: new Date(dayStart).toISOString().split('T')[0],
                 events: dayEvents.length,
-                commands: dayEvents.filter(e => e.event === 'command_executed').length,
-                errors: dayEvents.filter(e => e.event === 'error_occurred').length,
+                commands: dayEvents.filter(e => e.event_type === 'command').length,
+                errors: dayEvents.filter(e => e.event_type === 'error').length,
                 users: new Set(dayEvents.map(e => e.data.userId).filter(Boolean)).size,
                 guilds: new Set(dayEvents.map(e => e.data.guildId).filter(Boolean)).size
             });
@@ -250,7 +247,7 @@ export class AnalyticsManager {
         const commandCounts = {};
         
         this.events
-            .filter(event => event.event === 'command_executed')
+            .filter(event => event.event_type === 'command')
             .forEach(event => {
                 const command = event.data.command;
                 commandCounts[command] = (commandCounts[command] || 0) + 1;
@@ -316,9 +313,30 @@ export class AnalyticsManager {
     async storeEvent(event) {
         try {
             if (this.database && this.database.db) {
+                // Map event data to match the analytics_events table structure
+                const userId = event.data.userId || null;
+                const guildId = event.data.guildId || null;
+                const sessionId = event.data.sessionId || null;
+                const ipAddress = event.data.ipAddress || null;
+                const userAgent = event.data.userAgent || null;
+                const metadata = JSON.stringify(event.data);
+
                 await this.database.db.run(
-                    'INSERT INTO analytics_events (id, event, data, timestamp) VALUES (?, ?, ?, ?)',
-                    [event.id, event.event, JSON.stringify(event.data), event.timestamp]
+                    `INSERT INTO analytics_events 
+                     (id, event_type, event_name, user_id, guild_id, session_id, ip_address, user_agent, metadata, timestamp) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        event.id,
+                        event.event_type,
+                        event.event_name,
+                        userId,
+                        guildId,
+                        sessionId,
+                        ipAddress,
+                        userAgent,
+                        metadata,
+                        event.timestamp
+                    ]
                 );
             }
         } catch (error) {
@@ -336,7 +354,7 @@ export class AnalyticsManager {
                 
                 return events.map(event => ({
                     ...event,
-                    data: JSON.parse(event.data)
+                    data: event.metadata ? JSON.parse(event.metadata) : {}
                 }));
             }
         } catch (error) {
@@ -363,7 +381,7 @@ export class AnalyticsManager {
         const memUsage = process.memoryUsage();
         const cpuUsage = process.cpuUsage();
         
-        this.trackEvent('system_metrics', {
+        this.trackEvent('system', 'metrics', {
             memory: {
                 rss: memUsage.rss,
                 heapUsed: memUsage.heapUsed,
@@ -423,10 +441,11 @@ export class AnalyticsManager {
     convertToCSV(events) {
         if (events.length === 0) return '';
         
-        const headers = ['timestamp', 'event', 'data'];
+        const headers = ['timestamp', 'event_type', 'event_name', 'data'];
         const rows = events.map(event => [
             event.timestamp,
-            event.event,
+            event.event_type,
+            event.event_name,
             JSON.stringify(event.data)
         ]);
         

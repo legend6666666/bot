@@ -10,6 +10,9 @@ export default {
         ),
     cooldown: 5,
     async execute(interaction) {
+        // Defer reply immediately to prevent multiple acknowledgments
+        await interaction.deferReply();
+
         const commandName = interaction.options.getString('command');
 
         if (commandName) {
@@ -17,12 +20,11 @@ export default {
             const command = interaction.client.commands.get(commandName);
             
             if (!command) {
-                return interaction.reply({
+                return interaction.editReply({
                     embeds: [new EmbedBuilder()
                         .setColor('#FF0000')
                         .setDescription(`❌ Command \`${commandName}\` not found!`)
-                    ],
-                    ephemeral: true
+                    ]
                 });
             }
 
@@ -45,7 +47,7 @@ export default {
                 embed.addFields({ name: 'Options', value: options });
             }
 
-            return interaction.reply({ embeds: [embed] });
+            return interaction.editReply({ embeds: [embed] });
         }
 
         // Show interactive help menu
@@ -115,7 +117,7 @@ export default {
 
         const selectRow = new ActionRowBuilder().addComponents(categorySelect);
 
-        await interaction.reply({ 
+        await interaction.editReply({ 
             embeds: [embed], 
             components: [selectRow]
         });

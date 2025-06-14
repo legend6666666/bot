@@ -33,7 +33,12 @@ export default {
                         .setColor('#FF0000')
                         .setDescription(`⏰ Please wait, you are on cooldown for \`${command.data.name}\`. You can use it again <t:${expiredTimestamp}:R>.`);
                     
-                    return interaction.reply({ embeds: [embed], ephemeral: true });
+                    try {
+                        return interaction.reply({ embeds: [embed], ephemeral: true });
+                    } catch (error) {
+                        console.error(chalk.red('Failed to send cooldown message:'), error);
+                        return;
+                    }
                 }
             }
 
@@ -52,10 +57,14 @@ export default {
                     .setDescription('There was an error while executing this command!')
                     .setTimestamp();
 
-                if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp({ embeds: [errorEmbed], ephemeral: true });
-                } else {
-                    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+                try {
+                    if (interaction.replied || interaction.deferred) {
+                        await interaction.followUp({ embeds: [errorEmbed], ephemeral: true });
+                    } else {
+                        await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+                    }
+                } catch (replyError) {
+                    console.error(chalk.red('Failed to send error message:'), replyError);
                 }
             }
         }
@@ -70,8 +79,12 @@ export default {
                     await button.execute(interaction);
                 } catch (error) {
                     console.error('Button interaction error:', error);
-                    if (!interaction.replied && !interaction.deferred) {
-                        await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
+                    try {
+                        if (!interaction.replied && !interaction.deferred) {
+                            await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
+                        }
+                    } catch (replyError) {
+                        console.error('Failed to send button error message:', replyError);
                     }
                 }
             }
@@ -86,8 +99,12 @@ export default {
                     await selectMenu.execute(interaction);
                 } catch (error) {
                     console.error('Select menu interaction error:', error);
-                    if (!interaction.replied && !interaction.deferred) {
-                        await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
+                    try {
+                        if (!interaction.replied && !interaction.deferred) {
+                            await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
+                        }
+                    } catch (replyError) {
+                        console.error('Failed to send select menu error message:', replyError);
                     }
                 }
             }
@@ -103,8 +120,12 @@ export default {
                     await modal.execute(interaction);
                 } catch (error) {
                     console.error('Modal interaction error:', error);
-                    if (!interaction.replied && !interaction.deferred) {
-                        await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
+                    try {
+                        if (!interaction.replied && !interaction.deferred) {
+                            await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
+                        }
+                    } catch (replyError) {
+                        console.error('Failed to send modal error message:', replyError);
                     }
                 }
             }
