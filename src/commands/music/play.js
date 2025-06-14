@@ -25,7 +25,28 @@ export default {
         const shuffle = interaction.options.getBoolean('shuffle') || false;
         const addToTop = interaction.options.getBoolean('top') || false;
         
-        await interaction.client.music.play(interaction, query, { shuffle, addToTop });
+        try {
+            await interaction.client.music.play(interaction, query, { shuffle, addToTop });
+        } catch (error) {
+            console.error('Music play error:', error);
+            
+            // Create user-friendly error message
+            const errorEmbed = new EmbedBuilder()
+                .setColor('#FF0000')
+                .setTitle('🎵 Music Error')
+                .setDescription('Failed to connect to the audio source. Please try again later.')
+                .setTimestamp();
+
+            try {
+                if (interaction.replied || interaction.deferred) {
+                    await interaction.editReply({ embeds: [errorEmbed] });
+                } else {
+                    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+                }
+            } catch (replyError) {
+                console.error('Failed to send music error message:', replyError);
+            }
+        }
     },
 
     async autocomplete(interaction) {
@@ -37,7 +58,7 @@ export default {
 
         try {
             const yts = await import('youtube-sr');
-            const results = await yts.default.search(focusedValue, { limit: 10, type: 'video' });
+            const results = await yts.search(focusedValue, { limit: 10, type: 'video' });
             
             const choices = results.map(video => ({
                 name: `${video.title} - ${video.channel?.name}`.slice(0, 100),

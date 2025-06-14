@@ -64,7 +64,12 @@ export default {
                         await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
                     }
                 } catch (replyError) {
-                    console.error(chalk.red('Failed to send error message:'), replyError);
+                    // Check if the error is due to interaction already being acknowledged
+                    if (replyError.code === 40060) {
+                        console.warn(chalk.yellow('Interaction was already acknowledged, skipping error reply'));
+                    } else {
+                        console.error(chalk.red('Failed to send error message:'), replyError);
+                    }
                 }
             }
         }
@@ -84,7 +89,11 @@ export default {
                             await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
                         }
                     } catch (replyError) {
-                        console.error('Failed to send button error message:', replyError);
+                        if (replyError.code === 40060) {
+                            console.warn(chalk.yellow('Button interaction was already acknowledged'));
+                        } else {
+                            console.error('Failed to send button error message:', replyError);
+                        }
                     }
                 }
             }
@@ -104,7 +113,11 @@ export default {
                             await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
                         }
                     } catch (replyError) {
-                        console.error('Failed to send select menu error message:', replyError);
+                        if (replyError.code === 40060) {
+                            console.warn(chalk.yellow('Select menu interaction was already acknowledged'));
+                        } else {
+                            console.error('Failed to send select menu error message:', replyError);
+                        }
                     }
                 }
             }
@@ -125,7 +138,11 @@ export default {
                             await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
                         }
                     } catch (replyError) {
-                        console.error('Failed to send modal error message:', replyError);
+                        if (replyError.code === 40060) {
+                            console.warn(chalk.yellow('Modal interaction was already acknowledged'));
+                        } else {
+                            console.error('Failed to send modal error message:', replyError);
+                        }
                     }
                 }
             }
