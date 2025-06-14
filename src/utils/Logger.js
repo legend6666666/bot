@@ -1,78 +1,85 @@
-import chalk from 'chalk';
-
 export class Logger {
     constructor() {
-        this.logLevel = process.env.LOG_LEVEL || 'info';
-        this.levels = {
-            debug: 0,
-            info: 1,
-            warn: 2,
-            error: 3,
-            critical: 4
+        this.colors = {
+            reset: '\x1b[0m',
+            bright: '\x1b[1m',
+            dim: '\x1b[2m',
+            red: '\x1b[31m',
+            green: '\x1b[32m',
+            yellow: '\x1b[33m',
+            blue: '\x1b[34m',
+            magenta: '\x1b[35m',
+            cyan: '\x1b[36m',
+            white: '\x1b[37m'
         };
     }
 
-    shouldLog(level) {
-        return this.levels[level] >= this.levels[this.logLevel];
-    }
-
-    formatMessage(level, message, data = null) {
+    formatMessage(level, message, data = null, context = null) {
         const timestamp = new Date().toISOString();
-        const prefix = `[${timestamp}] [${level.toUpperCase()}]`;
-        
-        let formattedMessage = `${prefix} ${message}`;
+        let formattedMessage = `[${timestamp}] [${level.toUpperCase()}] ${message}`;
         
         if (data) {
-            formattedMessage += ` ${JSON.stringify(data)}`;
+            formattedMessage += ` ${JSON.stringify(data, null, 2)}`;
+        }
+        
+        if (context) {
+            formattedMessage += ` Context: ${JSON.stringify(context, null, 2)}`;
         }
         
         return formattedMessage;
     }
 
-    debug(message, data = null) {
-        if (!this.shouldLog('debug')) return;
-        console.log(chalk.gray(this.formatMessage('debug', message, data)));
+    info(message, data = null, context = null) {
+        const formatted = this.formatMessage('info', message, data, context);
+        console.log(`${this.colors.blue}${formatted}${this.colors.reset}`);
     }
 
-    info(message, data = null) {
-        if (!this.shouldLog('info')) return;
-        console.log(chalk.blue(this.formatMessage('info', message, data)));
+    success(message, data = null, context = null) {
+        const formatted = this.formatMessage('success', message, data, context);
+        console.log(`${this.colors.green}${formatted}${this.colors.reset}`);
     }
 
-    success(message, data = null) {
-        if (!this.shouldLog('info')) return;
-        console.log(chalk.green(this.formatMessage('success', message, data)));
+    warn(message, data = null, context = null) {
+        const formatted = this.formatMessage('warn', message, data, context);
+        console.log(`${this.colors.yellow}${formatted}${this.colors.reset}`);
     }
 
-    loading(message, data = null) {
-        if (!this.shouldLog('info')) return;
-        console.log(chalk.cyan(this.formatMessage('loading', message, data)));
+    error(message, error = null, context = null) {
+        const formatted = this.formatMessage('error', message, error?.message || error, context);
+        console.error(`${this.colors.red}${formatted}${this.colors.reset}`);
+        
+        if (error?.stack) {
+            console.error(`${this.colors.red}Stack trace: ${error.stack}${this.colors.reset}`);
+        }
     }
 
-    warn(message, data = null) {
-        if (!this.shouldLog('warn')) return;
-        console.warn(chalk.yellow(this.formatMessage('warn', message, data)));
+    critical(message, error = null, context = null) {
+        const formatted = this.formatMessage('critical', message, error?.message || error, context);
+        console.error(`${this.colors.red}${this.colors.bright}${formatted}${this.colors.reset}`);
+        
+        if (error?.stack) {
+            console.error(`${this.colors.red}Stack trace: ${error.stack}${this.colors.reset}`);
+        }
     }
 
-    error(message, data = null) {
-        if (!this.shouldLog('error')) return;
-        console.error(chalk.red(this.formatMessage('error', message, data)));
+    debug(message, data = null, context = null) {
+        if (process.env.NODE_ENV === 'development') {
+            const formatted = this.formatMessage('debug', message, data, context);
+            console.log(`${this.colors.dim}${formatted}${this.colors.reset}`);
+        }
     }
 
-    critical(message, data = null) {
-        if (!this.shouldLog('critical')) return;
-        console.error(chalk.redBright(this.formatMessage('critical', message, data)));
+    loading(message) {
+        console.log(`${this.colors.cyan}⏳ ${message}...${this.colors.reset}`);
     }
 
-    security(message, user = null, data = null) {
-        if (!this.shouldLog('warn')) return;
-        const securityData = { user, ...data };
-        console.warn(chalk.magenta(this.formatMessage('security', message, securityData)));
+    security(message, user = null, context = null) {
+        const formatted = this.formatMessage('security', message, user, context);
+        console.log(`${this.colors.magenta}${formatted}${this.colors.reset}`);
     }
 
-    performance(message, duration, data = null) {
-        if (!this.shouldLog('debug')) return;
-        const perfData = { duration: `${duration}ms`, ...data };
-        console.log(chalk.cyan(this.formatMessage('performance', message, perfData)));
+    performance(message, duration, context = null) {
+        const formatted = this.formatMessage('performance', `${message} (${duration}ms)`, null, context);
+        console.log(`${this.colors.cyan}${formatted}${this.colors.reset}`);
     }
 }

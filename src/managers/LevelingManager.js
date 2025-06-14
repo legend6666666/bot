@@ -80,30 +80,22 @@ export class LevelingManager {
     }
 
     async createRankCard(user, levelData) {
-        // Instead of using canvas to generate an image, we'll create a text-based representation
-        // This avoids the need for the canvas module
+        // Simple text-based rank card since canvas is not available
+        const progressBar = '█'.repeat(Math.floor(levelData.progress / 10)) + '░'.repeat(10 - Math.floor(levelData.progress / 10));
         
-        // Create a progress bar
-        const progressBarLength = 20;
-        const filledBars = Math.round((levelData.progress / 100) * progressBarLength);
-        const emptyBars = progressBarLength - filledBars;
-        const progressBar = '█'.repeat(filledBars) + '░'.repeat(emptyBars);
+        const rankCard = `
+╔══════════════════════════════════════╗
+║            RANK CARD                 ║
+╠══════════════════════════════════════╣
+║ User: ${user.username.padEnd(28)} ║
+║ Level: ${levelData.level.toString().padEnd(27)} ║
+║ XP: ${levelData.xp.toLocaleString().padEnd(30)} ║
+║ Progress: [${progressBar}] ${Math.round(levelData.progress)}% ║
+║ Next Level: ${levelData.neededXP - levelData.progressXP} XP needed ║
+╚══════════════════════════════════════╝
+        `;
         
-        // Create a text-based rank card
-        const rankCardText = [
-            `**${user.username}'s Rank Card**`,
-            ``,
-            `**Level:** ${levelData.level}`,
-            `**XP:** ${levelData.progressXP.toLocaleString()} / ${levelData.neededXP.toLocaleString()}`,
-            `**Total XP:** ${levelData.xp.toLocaleString()}`,
-            `**Progress:** ${Math.round(levelData.progress)}%`,
-            `**Progress Bar:** ${progressBar}`,
-            ``,
-            `*Generated at ${new Date().toLocaleString()}*`
-        ].join('\n');
-        
-        // Return the text as a buffer
-        return Buffer.from(rankCardText);
+        return Buffer.from(rankCard, 'utf8');
     }
 
     async setLevel(userId, level) {
