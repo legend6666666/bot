@@ -95,7 +95,9 @@ function setupGracefulShutdown(bot) {
         logger.info(`Received ${signal}, shutting down gracefully...`);
         
         try {
-            await bot.shutdown();
+            if (bot && typeof bot.shutdown === 'function') {
+                await bot.shutdown();
+            }
             logger.success('Bot shutdown completed successfully');
             process.exit(0);
         } catch (error) {
@@ -113,11 +115,13 @@ function setupGracefulShutdown(bot) {
 function setupErrorHandling() {
     process.on('uncaughtException', (error) => {
         logger.critical('Uncaught Exception:', error);
+        console.error(error);
         process.exit(1);
     });
     
     process.on('unhandledRejection', (reason, promise) => {
         logger.critical('Unhandled Rejection at:', promise, 'reason:', reason);
+        console.error(reason);
         // Don't exit on unhandled rejections, just log them
     });
     
@@ -178,6 +182,7 @@ async function main() {
         
     } catch (error) {
         logger.critical('Failed to start bot:', error);
+        console.error(error);
         process.exit(1);
     }
 }

@@ -1,6 +1,5 @@
 import { Logger } from '../utils/Logger.js';
 import crypto from 'crypto';
-import { RateLimiterMemory } from 'rate-limiter-flexible';
 
 export class SecurityManager {
     constructor() {
@@ -16,43 +15,73 @@ export class SecurityManager {
 
     initializeRateLimiters() {
         // Command rate limiter
-        this.rateLimiters.set('commands', new RateLimiterMemory({
+        this.rateLimiters.set('commands', {
             points: 10, // Number of commands
             duration: 60, // Per 60 seconds
-            blockDuration: 300 // Block for 5 minutes
-        }));
+            blockDuration: 300, // Block for 5 minutes
+            users: new Map()
+        });
 
         // Message rate limiter
-        this.rateLimiters.set('messages', new RateLimiterMemory({
+        this.rateLimiters.set('messages', {
             points: 20, // Number of messages
             duration: 60, // Per 60 seconds
-            blockDuration: 600 // Block for 10 minutes
-        }));
+            blockDuration: 600, // Block for 10 minutes
+            users: new Map()
+        });
 
         // API rate limiter
-        this.rateLimiters.set('api', new RateLimiterMemory({
+        this.rateLimiters.set('api', {
             points: 100, // Number of requests
             duration: 3600, // Per hour
-            blockDuration: 3600 // Block for 1 hour
-        }));
+            blockDuration: 3600, // Block for 1 hour
+            users: new Map()
+        });
 
         // Login attempts
-        this.rateLimiters.set('login', new RateLimiterMemory({
+        this.rateLimiters.set('login', {
             points: 5, // Number of attempts
             duration: 900, // Per 15 minutes
-            blockDuration: 1800 // Block for 30 minutes
-        }));
+            blockDuration: 1800, // Block for 30 minutes
+            users: new Map()
+        });
     }
 
     async checkRateLimit(type, identifier) {
         const limiter = this.rateLimiters.get(type);
         if (!limiter) return { allowed: true };
 
-        try {
-            await limiter.consume(identifier);
-            return { allowed: true };
-        } catch (rejRes) {
-            const secs = Math.round(rejRes.msBeforeNext / 1000) || 1;
+        const now = Date.now();
+        const userKey = `${type}:${identifier}`;
+        const userData = limiter.users.get(userKey) || { 
+            count: 0, 
+            resetTime: now + (limiter.duration * 1000),
+            blockUntil: 0
+        };
+
+        // Check if user is blocked
+        if (userData.blockUntil > now) {
+            const secs = Math.round((userData.blockUntil - now) / 1000) || 1;
+            return { 
+                allowed: false, 
+                retryAfter: secs,
+                totalHits: userData.count,
+                remainingPoints: 0
+            };
+        }
+
+        // Reset counter if duration has passed
+        if (now > userData.resetTime) {
+            userData.count = 0;
+            userData.resetTime = now + (limiter.duration * 1000);
+        }
+
+        // Check if limit exceeded
+        if (userData.count >= limiter.points) {
+            userData.blockUntil = now + (limiter.blockDuration * 1000);
+            limiter.users.set(userKey, userData);
+            
+            const secs = Math.round(limiter.blockDuration) || 1;
             this.logger.security('Rate limit exceeded', { identifier }, { 
                 type, 
                 identifier, 
@@ -62,10 +91,20 @@ export class SecurityManager {
             return { 
                 allowed: false, 
                 retryAfter: secs,
-                totalHits: rejRes.totalHits,
-                remainingPoints: rejRes.remainingPoints
+                totalHits: userData.count,
+                remainingPoints: 0
             };
         }
+
+        // Increment counter
+        userData.count++;
+        limiter.users.set(userKey, userData);
+        
+        return { 
+            allowed: true,
+            remainingPoints: limiter.points - userData.count,
+            totalHits: userData.count
+        };
     }
 
     // User security checks
@@ -185,29 +224,28 @@ export class SecurityManager {
     encrypt(text, key = process.env.ENCRYPTION_KEY) {
         if (!key) throw new Error('Encryption key not provided');
         
-        const algorithm = 'aes-256-gcm';
+        const algorithm = 'aes-256-cbc';
         const iv = crypto.randomBytes(16);
-        const cipher = crypto.createCipher(algorithm, key);
+        const cipher = crypto.createCipheriv(algorithm, Buffer.from(key.padEnd(32).slice(0, 32)), iv);
         
         let encrypted = cipher.update(text, 'utf8', 'hex');
         encrypted += cipher.final('hex');
         
-        const authTag = cipher.getAuthTag();
-        
         return {
             encrypted,
-            iv: iv.toString('hex'),
-            authTag: authTag.toString('hex')
+            iv: iv.toString('hex')
         };
     }
 
     decrypt(encryptedData, key = process.env.ENCRYPTION_KEY) {
         if (!key) throw new Error('Encryption key not provided');
         
-        const algorithm = 'aes-256-gcm';
-        const decipher = crypto.createDecipher(algorithm, key);
-        
-        decipher.setAuthTag(Buffer.from(encryptedData.authTag, 'hex'));
+        const algorithm = 'aes-256-cbc';
+        const decipher = crypto.createDecipheriv(
+            algorithm, 
+            Buffer.from(key.padEnd(32).slice(0, 32)), 
+            Buffer.from(encryptedData.iv, 'hex')
+        );
         
         let decrypted = decipher.update(encryptedData.encrypted, 'hex', 'utf8');
         decrypted += decipher.final('utf8');
@@ -222,7 +260,7 @@ export class SecurityManager {
 
     verifyHash(data, hash, algorithm = 'sha256') {
         const computed = this.hash(data, algorithm);
-        return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash));
+        return computed === hash;
     }
 
     // Token generation
@@ -293,10 +331,7 @@ export class SecurityManager {
         if (!token || !storedToken) return false;
         if (Date.now() > storedToken.expires) return false;
         
-        return crypto.timingSafeEqual(
-            Buffer.from(token),
-            Buffer.from(storedToken.token)
-        );
+        return token === storedToken.token;
     }
 
     // Security headers for web requests

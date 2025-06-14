@@ -1,6 +1,4 @@
 import { Logger } from '../utils/Logger.js';
-import nodemailer from 'nodemailer';
-import { Webhook } from 'discord.js';
 
 export class NotificationManager {
     constructor() {
@@ -16,32 +14,9 @@ export class NotificationManager {
 
     async initializeProviders() {
         try {
-            // Initialize email transporter
-            if (process.env.EMAIL_SERVICE && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-                this.emailTransporter = nodemailer.createTransporter({
-                    service: process.env.EMAIL_SERVICE,
-                    auth: {
-                        user: process.env.EMAIL_USER,
-                        pass: process.env.EMAIL_PASS
-                    }
-                });
-                this.logger.info('Email notifications initialized');
-            }
-
             // Initialize Discord webhook
             if (process.env.DISCORD_WEBHOOK_URL) {
-                this.discordWebhook = new Webhook(process.env.DISCORD_WEBHOOK_URL);
                 this.logger.info('Discord webhook notifications initialized');
-            }
-
-            // Initialize SMS (Twilio)
-            if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-                const twilio = await import('twilio');
-                this.smsClient = twilio.default(
-                    process.env.TWILIO_ACCOUNT_SID,
-                    process.env.TWILIO_AUTH_TOKEN
-                );
-                this.logger.info('SMS notifications initialized');
             }
 
             this.startNotificationProcessor();
@@ -91,15 +66,6 @@ export class NotificationManager {
         for (const channel of channels) {
             try {
                 switch (channel) {
-                    case 'email':
-                        await this.sendEmail(data);
-                        break;
-                    case 'discord':
-                        await this.sendDiscordNotification(data);
-                        break;
-                    case 'sms':
-                        await this.sendSMS(data);
-                        break;
                     case 'console':
                         this.sendConsoleNotification(data);
                         break;
@@ -108,55 +74,6 @@ export class NotificationManager {
                 this.logger.error(`Failed to send ${channel} notification:`, error);
             }
         }
-    }
-
-    async sendEmail(data) {
-        if (!this.emailTransporter) return;
-        
-        const mailOptions = {
-            from: process.env.EMAIL_USER,
-            to: data.recipient || process.env.ADMIN_EMAIL,
-            subject: data.subject || 'Bot Notification',
-            html: this.generateEmailHTML(data)
-        };
-        
-        await this.emailTransporter.sendMail(mailOptions);
-        this.logger.debug('Email notification sent');
-    }
-
-    async sendDiscordNotification(data) {
-        if (!this.discordWebhook) return;
-        
-        const embed = {
-            title: data.title || 'Bot Notification',
-            description: data.message,
-            color: this.getColorForSeverity(data.severity),
-            timestamp: new Date().toISOString(),
-            footer: {
-                text: 'World\'s Best Discord Bot'
-            }
-        };
-        
-        if (data.fields) {
-            embed.fields = data.fields;
-        }
-        
-        await this.discordWebhook.send({ embeds: [embed] });
-        this.logger.debug('Discord webhook notification sent');
-    }
-
-    async sendSMS(data) {
-        if (!this.smsClient) return;
-        
-        const message = `${data.title || 'Bot Alert'}: ${data.message}`;
-        
-        await this.smsClient.messages.create({
-            body: message,
-            from: process.env.TWILIO_PHONE_NUMBER,
-            to: data.recipient || process.env.ADMIN_PHONE
-        });
-        
-        this.logger.debug('SMS notification sent');
     }
 
     sendConsoleNotification(data) {
@@ -182,7 +99,7 @@ export class NotificationManager {
     async sendAlert(alert) {
         this.queueNotification({
             type: 'alert',
-            channels: ['console', 'discord'],
+            channels: ['console'],
             title: `🚨 ${alert.type.toUpperCase()} Alert`,
             message: alert.message,
             severity: alert.severity,
@@ -197,7 +114,7 @@ export class NotificationManager {
     async sendErrorNotification(error, context = {}) {
         this.queueNotification({
             type: 'error',
-            channels: ['console', 'discord'],
+            channels: ['console'],
             title: '❌ Error Occurred',
             message: error.message,
             severity: 'error',
@@ -211,7 +128,7 @@ export class NotificationManager {
     async sendStartupNotification() {
         this.queueNotification({
             type: 'startup',
-            channels: ['console', 'discord'],
+            channels: ['console'],
             title: '🚀 Bot Started',
             message: 'World\'s Best Discord Bot has started successfully!',
             severity: 'info',
@@ -226,7 +143,7 @@ export class NotificationManager {
     async sendShutdownNotification() {
         this.queueNotification({
             type: 'shutdown',
-            channels: ['console', 'discord'],
+            channels: ['console'],
             title: '🔄 Bot Shutting Down',
             message: 'World\'s Best Discord Bot is shutting down...',
             severity: 'warning',
@@ -240,7 +157,7 @@ export class NotificationManager {
     async sendGuildJoinNotification(guild) {
         this.queueNotification({
             type: 'guild_join',
-            channels: ['console', 'discord'],
+            channels: ['console'],
             title: '➕ New Guild Joined',
             message: `Bot has been added to a new server!`,
             severity: 'info',
@@ -255,7 +172,7 @@ export class NotificationManager {
     async sendGuildLeaveNotification(guild) {
         this.queueNotification({
             type: 'guild_leave',
-            channels: ['console', 'discord'],
+            channels: ['console'],
             title: '➖ Guild Left',
             message: `Bot has been removed from a server.`,
             severity: 'warning',
@@ -269,7 +186,7 @@ export class NotificationManager {
     async sendPerformanceAlert(metric, value, threshold) {
         this.queueNotification({
             type: 'performance',
-            channels: ['console', 'discord'],
+            channels: ['console'],
             title: '⚠️ Performance Alert',
             message: `${metric} has exceeded the threshold!`,
             severity: 'warning',
@@ -284,7 +201,7 @@ export class NotificationManager {
     async sendMaintenanceNotification(message, scheduled = false) {
         this.queueNotification({
             type: 'maintenance',
-            channels: ['console', 'discord'],
+            channels: ['console'],
             title: scheduled ? '🔧 Scheduled Maintenance' : '🛠️ Maintenance',
             message,
             severity: 'info'
@@ -292,51 +209,6 @@ export class NotificationManager {
     }
 
     // Utility methods
-    generateEmailHTML(data) {
-        return `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; }
-                .container { max-width: 600px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; }
-                .header { background-color: #7289da; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }
-                .content { padding: 20px; }
-                .footer { background-color: #f8f9fa; padding: 15px; border-radius: 0 0 8px 8px; text-align: center; font-size: 12px; color: #666; }
-                .severity-critical { border-left: 4px solid #dc3545; }
-                .severity-warning { border-left: 4px solid #ffc107; }
-                .severity-info { border-left: 4px solid #17a2b8; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>${data.title || 'Bot Notification'}</h1>
-                </div>
-                <div class="content severity-${data.severity || 'info'}">
-                    <p>${data.message}</p>
-                    ${data.fields ? data.fields.map(field => `<p><strong>${field.name}:</strong> ${field.value}</p>`).join('') : ''}
-                </div>
-                <div class="footer">
-                    <p>World's Best Discord Bot - ${new Date().toLocaleString()}</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        `;
-    }
-
-    getColorForSeverity(severity) {
-        const colors = {
-            critical: 0xdc3545,
-            error: 0xdc3545,
-            warning: 0xffc107,
-            info: 0x17a2b8,
-            success: 0x28a745
-        };
-        return colors[severity] || colors.info;
-    }
-
     formatUptime(seconds) {
         const days = Math.floor(seconds / 86400);
         const hours = Math.floor((seconds % 86400) / 3600);
@@ -349,36 +221,6 @@ export class NotificationManager {
 
     generateNotificationId() {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
-    }
-
-    // Configuration methods
-    setEmailConfig(config) {
-        if (config.service && config.user && config.pass) {
-            this.emailTransporter = nodemailer.createTransporter({
-                service: config.service,
-                auth: {
-                    user: config.user,
-                    pass: config.pass
-                }
-            });
-            this.logger.info('Email configuration updated');
-        }
-    }
-
-    setDiscordWebhook(webhookUrl) {
-        if (webhookUrl) {
-            this.discordWebhook = new Webhook(webhookUrl);
-            this.logger.info('Discord webhook updated');
-        }
-    }
-
-    setSMSConfig(config) {
-        if (config.accountSid && config.authToken) {
-            import('twilio').then(twilio => {
-                this.smsClient = twilio.default(config.accountSid, config.authToken);
-                this.logger.info('SMS configuration updated');
-            });
-        }
     }
 
     // Statistics

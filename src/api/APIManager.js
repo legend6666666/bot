@@ -1,7 +1,6 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import rateLimit from 'express-rate-limit';
 import { Logger } from '../utils/Logger.js';
 
 export class APIManager {
@@ -18,16 +17,34 @@ export class APIManager {
 
     setupMiddleware() {
         // API Rate limiting
-        const apiLimiter = rateLimit({
-            windowMs: 15 * 60 * 1000, // 15 minutes
-            max: 1000, // limit each IP to 1000 requests per windowMs
-            message: {
-                error: 'Too many API requests',
-                retryAfter: '15 minutes'
-            },
-            standardHeaders: true,
-            legacyHeaders: false
-        });
+        const apiLimiter = (req, res, next) => {
+            // Simple rate limiter implementation
+            const ip = req.ip;
+            const now = Date.now();
+            const windowMs = 15 * 60 * 1000; // 15 minutes
+            const maxRequests = 1000;
+            
+            const key = `ratelimit:${ip}`;
+            const requests = this.sessions.get(key) || { count: 0, resetTime: now + windowMs };
+            
+            if (now > requests.resetTime) {
+                requests.count = 1;
+                requests.resetTime = now + windowMs;
+            } else {
+                requests.count++;
+            }
+            
+            this.sessions.set(key, requests);
+            
+            if (requests.count > maxRequests) {
+                return res.status(429).json({
+                    error: 'Too many API requests',
+                    retryAfter: '15 minutes'
+                });
+            }
+            
+            next();
+        };
 
         this.router.use(apiLimiter);
 
@@ -97,7 +114,7 @@ export class APIManager {
             }
 
             // Check rate limiting for login attempts
-            const rateLimitResult = await this.botCore.security.checkRateLimit('login', req.ip);
+            const rateLimitResult = this.checkRateLimit('login', req.ip);
             if (!rateLimitResult.allowed) {
                 return res.status(429).json({
                     error: 'Too many login attempts',
@@ -506,6 +523,31 @@ export class APIManager {
     async processDiscordWebhook(payload) {
         // Process Discord webhook payload
         this.logger.info('Processing Discord webhook payload');
+    }
+
+    checkRateLimit(type, identifier) {
+        // Simple rate limiting implementation
+        const key = `${type}:${identifier}`;
+        const now = Date.now();
+        const limit = this.sessions.get(key) || { count: 0, resetTime: now + 900000 }; // 15 minutes
+        
+        if (now > limit.resetTime) {
+            limit.count = 1;
+            limit.resetTime = now + 900000;
+            this.sessions.set(key, limit);
+            return { allowed: true };
+        }
+        
+        if (type === 'login' && limit.count >= 5) {
+            return { 
+                allowed: false, 
+                retryAfter: Math.ceil((limit.resetTime - now) / 1000)
+            };
+        }
+        
+        limit.count++;
+        this.sessions.set(key, limit);
+        return { allowed: true };
     }
 
     getRouter() {
