@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "metrics": true,
+  "healthCheck": true,
+  "alerts": {
+    "cpu": 80,
+    "memory": 80,
+    "disk": 90,
+    "errors": 10
+  }
+}

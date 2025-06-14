@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "interval": 86400000,
+  "retention": 30,
+  "compression": true,
+  "encryption": false
+}

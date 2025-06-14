@@ -1,0 +1,18 @@
+{
+  "email": {
+    "enabled": false,
+    "service": "gmail",
+    "user": "",
+    "password": ""
+  },
+  "sms": {
+    "enabled": false,
+    "accountSid": "",
+    "authToken": "",
+    "from": ""
+  },
+  "discord": {
+    "enabled": true,
+    "webhookUrl": ""
+  }
+}

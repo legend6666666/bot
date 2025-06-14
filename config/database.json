@@ -1,0 +1,13 @@
+{
+  "type": "sqlite",
+  "host": "localhost",
+  "port": 5432,
+  "username": "bot",
+  "password": "",
+  "database": "discord_bot",
+  "ssl": false,
+  "pool": {
+    "min": 2,
+    "max": 10
+  }
+}

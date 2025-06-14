@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { Logger } from '../utils/Logger.js';
 
@@ -196,6 +196,9 @@ export class ConfigManager {
 
     async load() {
         try {
+            // Ensure the config directory exists
+            mkdirSync(this.configPath, { recursive: true });
+            
             for (const [name, defaultConfig] of Object.entries(this.defaultConfigs)) {
                 const configFile = join(this.configPath, `${name}.json`);
                 
@@ -222,6 +225,9 @@ export class ConfigManager {
             if (!config) {
                 throw new Error(`Configuration '${configName}' not found`);
             }
+
+            // Ensure the config directory exists
+            mkdirSync(this.configPath, { recursive: true });
 
             const configFile = join(this.configPath, `${configName}.json`);
             writeFileSync(configFile, JSON.stringify(config, null, 2));

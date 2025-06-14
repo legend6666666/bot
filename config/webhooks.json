@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "secret": "your-webhook-secret",
+  "endpoints": {
+    "github": "/webhooks/github",
+    "stripe": "/webhooks/stripe",
+    "paypal": "/webhooks/paypal"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "World's Best Discord Bot",
+  "version": "2.0.0",
+  "description": "The most advanced Discord bot with 200+ commands",
+  "website": "https://discordbot.pro",
+  "supportServer": "https://discord.gg/support",
+  "inviteUrl": "https://discord.com/oauth2/authorize",
+  "prefix": "!",
+  "owners": [],
+  "developers": [],
+  "betaTesters": [],
+  "status": {
+    "enabled": true,
+    "activities": [
+      {
+        "name": "World's Best Bot",
+        "type": "PLAYING"
+      },
+      {
+        "name": "200+ Commands",
+        "type": "WATCHING"
+      },
+      {
+        "name": "Premium Features",
+        "type": "LISTENING"
+      },
+      {
+        "name": "AI Integration",
+        "type": "COMPETING"
+      }
+    ],
+    "interval": 30000
+  }
+}

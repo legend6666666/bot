@@ -1,0 +1,85 @@
+{
+  "music": {
+    "enabled": true,
+    "maxQueueSize": 100,
+    "maxSongDuration": 3600,
+    "defaultVolume": 50,
+    "leaveOnEmpty": true,
+    "leaveTimeout": 300000,
+    "sources": [
+      "youtube",
+      "spotify",
+      "soundcloud"
+    ],
+    "filters": [
+      "bassboost",
+      "nightcore",
+      "vaporwave",
+      "8d"
+    ]
+  },
+  "economy": {
+    "enabled": true,
+    "currency": "coins",
+    "dailyReward": 1000,
+    "workCooldown": 3600000,
+    "crimeCooldown": 1800000,
+    "maxBankBalance": 10000000,
+    "interestRate": 0.05,
+    "taxRate": 0.1
+  },
+  "moderation": {
+    "enabled": true,
+    "autoMod": true,
+    "spamThreshold": 5,
+    "raidMode": false,
+    "autoRole": null,
+    "welcomeMessage": true,
+    "leaveMessage": false,
+    "dmOnPunishment": true
+  },
+  "leveling": {
+    "enabled": true,
+    "xpPerMessage": 15,
+    "xpCooldown": 60000,
+    "levelUpMessage": true,
+    "roleRewards": {},
+    "ignoredChannels": [],
+    "ignoredRoles": []
+  },
+  "ai": {
+    "enabled": true,
+    "provider": "openai",
+    "model": "gpt-4",
+    "maxTokens": 2000,
+    "temperature": 0.7,
+    "imageGeneration": true,
+    "voiceSynthesis": true,
+    "textAnalysis": true
+  },
+  "games": {
+    "enabled": true,
+    "trivia": true,
+    "gambling": true,
+    "tournaments": true,
+    "leaderboards": true,
+    "achievements": true
+  },
+  "tickets": {
+    "enabled": true,
+    "category": null,
+    "supportRole": null,
+    "transcripts": true,
+    "autoClose": 86400000,
+    "maxTickets": 5
+  },
+  "security": {
+    "enabled": true,
+    "antiSpam": true,
+    "antiRaid": true,
+    "antiNuke": true,
+    "verification": false,
+    "captcha": false,
+    "vpnDetection": false
+  }
+}
