@@ -38,11 +38,8 @@ export default {
                 .setTimestamp();
 
             try {
-                if (interaction.replied || interaction.deferred) {
-                    await interaction.editReply({ embeds: [errorEmbed] });
-                } else {
-                    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
-                }
+                // Always use editReply since the interaction should be deferred by the music manager
+                await interaction.editReply({ embeds: [errorEmbed] });
             } catch (replyError) {
                 console.error('Failed to send music error message:', replyError);
             }
@@ -58,7 +55,7 @@ export default {
 
         try {
             const yts = await import('youtube-sr');
-            const results = await yts.search(focusedValue, { limit: 10, type: 'video' });
+            const results = await yts.default.search(focusedValue, { limit: 10, type: 'video' });
             
             const choices = results.map(video => ({
                 name: `${video.title} - ${video.channel?.name}`.slice(0, 100),
