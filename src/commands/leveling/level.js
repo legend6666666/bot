@@ -13,6 +13,12 @@ export default {
         const targetUser = interaction.options.getUser('user') || interaction.user;
         const levelData = await interaction.client.levelingManager.getLevel(targetUser.id);
 
+        // Create progress bar
+        const progressBarLength = 20;
+        const filledBars = Math.round((levelData.progress / 100) * progressBarLength);
+        const emptyBars = progressBarLength - filledBars;
+        const progressBar = '█'.repeat(filledBars) + '░'.repeat(emptyBars);
+
         const embed = new EmbedBuilder()
             .setColor('#9932CC')
             .setTitle('📈 Level Information')
@@ -22,21 +28,12 @@ export default {
                 { name: '⭐ Total XP', value: levelData.xp.toLocaleString(), inline: true },
                 { name: '📊 Progress', value: `${Math.round(levelData.progress)}%`, inline: true },
                 { name: '🎯 Current Level XP', value: `${levelData.progressXP.toLocaleString()} / ${levelData.neededXP.toLocaleString()}`, inline: false },
-                { name: '🚀 Next Level', value: `${levelData.neededXP - levelData.progressXP} XP needed`, inline: true }
+                { name: '🚀 Next Level', value: `${levelData.neededXP - levelData.progressXP} XP needed`, inline: true },
+                { name: '📏 Progress Bar', value: progressBar, inline: false }
             )
             .setThumbnail(targetUser.displayAvatarURL())
             .setTimestamp();
 
-        // Create rank card
-        try {
-            const rankCard = await interaction.client.levelingManager.createRankCard(targetUser, levelData);
-            const attachment = new AttachmentBuilder(rankCard, { name: 'rank-card.png' });
-            
-            embed.setImage('attachment://rank-card.png');
-            await interaction.reply({ embeds: [embed], files: [attachment] });
-        } catch (error) {
-            console.error('Error creating rank card:', error);
-            await interaction.reply({ embeds: [embed] });
-        }
+        await interaction.reply({ embeds: [embed] });
     },
 };
